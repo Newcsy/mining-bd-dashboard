@@ -129,26 +129,36 @@ function useCounts(items) {
     return counts;
   }, [items]);
 }
+function useCommodityBreakdown(items) {
+  return useMemo(() => {
+    const counts = {};
+    items.forEach(i => {
+      counts[i.commodity] = (counts[i.commodity] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [items]);
+}
+const COMMODITY_COLORS = ["#C1592E", "#B08D57", "#4F7C90", "#6B8F6B", "#8B6BAE", "#71767D"];
 function uniqueSorted(items, key) {
   return Array.from(new Set(items.map(i => i[key]).filter(Boolean))).sort();
 }
-function buildEmailDraft(item) {
+function buildEmailDraft(item, senderName) {
   const opener = item.trigger ? `I saw the recent update on ${item.name} — ${item.trigger.toLowerCase()}.` : `I've been following ${item.name} and wanted to reach out.`;
   const middle = item.pathToWin ? ` ${item.pathToWin}` : ` We work with ${item.commodity.toLowerCase()} developers on early-stage NPI scope and design delivery, and thought it was worth connecting given where the project is at.`;
   const stageLine = item.stage && item.stage !== "Unclear" ? ` Given you're at the ${item.stage} stage,` : "";
   return `Hi,
 
-${opener}${middle}${stageLine} I'd welcome a short call to introduce DBM Vircon and hear more about your scope and timeline.
+${opener}${middle}${stageLine} I'd welcome a short call to introduce our team and hear more about your scope and timeline.
 
 Would you have 15 minutes in the next couple of weeks?
 
 Best regards,
-Greg`;
+${senderName || "[Your name]"}`;
 }
-function buildLinkedInDraft(item) {
+function buildLinkedInDraft(item, senderName) {
   const base = `Hi — I noticed ${item.name}`;
   const context = item.trigger ? ` (${item.trigger.slice(0, 60)})` : "";
-  return `${base}${context} and wanted to connect. I work with DBM Vircon on NPI and engineering delivery for mining projects in ${item.state}.`.slice(0, 300);
+  return `${base}${context} and wanted to connect. I work on NPI and engineering delivery for mining projects in ${item.state}.`.slice(0, 300);
 }
 const GENERIC_CONTACT_PATTERNS = /\b(team|study|development|manager|group|department|tbd|unknown|n\/a|none|unclear|contact|committee|panel|commission|solutions|enquiries|council|authority|estate|program|programme)\b/i;
 function extractPersonName(contact) {
@@ -238,6 +248,57 @@ function StrataBar({
       fontSize: "13px"
     }
   }, TIER_STYLE[tier].label)))));
+}
+function CommodityStrip({
+  breakdown,
+  total
+}) {
+  const max = breakdown.length ? breakdown[0][1] : 1;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "22px",
+      display: "flex",
+      flexWrap: "wrap",
+      gap: "18px 28px"
+    }
+  }, breakdown.map(([name, count], idx) => /*#__PURE__*/React.createElement("div", {
+    key: name,
+    style: {
+      minWidth: "90px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      marginBottom: "5px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#9A9DA2",
+      fontSize: "12px"
+    }
+  }, name), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "12px",
+      fontFamily: "'IBM Plex Mono', monospace"
+    }
+  }, count)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "90px",
+      height: "4px",
+      background: "#20242A",
+      borderRadius: "2px",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: `${count / max * 100}%`,
+      height: "100%",
+      background: COMMODITY_COLORS[idx % COMMODITY_COLORS.length],
+      borderRadius: "2px"
+    }
+  })))));
 }
 function Chip({
   children,
@@ -451,7 +512,8 @@ function CommentThread({
   }, saving ? "Saving…" : "Add comment")));
 }
 function OutreachDrafter({
-  item
+  item,
+  senderName
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState("email");
@@ -461,7 +523,7 @@ function OutreachDrafter({
     setOpen(true);
     setMode(selectedMode);
     setCopied(false);
-    setDraft(selectedMode === "email" ? buildEmailDraft(item) : buildLinkedInDraft(item));
+    setDraft(selectedMode === "email" ? buildEmailDraft(item, senderName) : buildLinkedInDraft(item, senderName));
   };
   const copy = async () => {
     try {
@@ -711,7 +773,8 @@ function Row({
   }, isRealPersonName(item.contact) ? `Find ${extractPersonName(item.contact)} on LinkedIn` : "Find contacts on LinkedIn", " ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
     size: 12
   })), /*#__PURE__*/React.createElement(OutreachDrafter, {
-    item: item
+    item: item,
+    senderName: commenterName
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       gridColumn: "1 / -1",
@@ -754,6 +817,7 @@ function Dashboard() {
     }).catch(e => setLoadError(e.message));
   }, []);
   const counts = useCounts(items || []);
+  const commodityBreakdown = useCommodityBreakdown(items || []);
   const commodities = useMemo(() => uniqueSorted(items || [], "commodity"), [items]);
   const states = useMemo(() => uniqueSorted(items || [], "state"), [items]);
   const stages = useMemo(() => uniqueSorted(items || [], "stage"), [items]);
@@ -823,6 +887,7 @@ function Dashboard() {
   return /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#14171B",
+      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'%3E%3Cg fill='none' stroke='%23FFFFFF' stroke-width='1' opacity='0.025'%3E%3Cpath d='M0,80 Q100,40 200,80 T400,80'/%3E%3Cpath d='M0,140 Q100,100 200,140 T400,140'/%3E%3Cpath d='M0,200 Q100,160 200,200 T400,200'/%3E%3Cpath d='M0,260 Q100,220 200,260 T400,260'/%3E%3Cpath d='M0,320 Q100,280 200,320 T400,320'/%3E%3C/g%3E%3C/svg%3E")`,
       minHeight: "100vh",
       fontFamily: "'IBM Plex Sans', sans-serif",
       padding: "40px 20px 80px"
@@ -842,6 +907,35 @@ function Dashboard() {
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
+      gap: "18px",
+      marginBottom: "24px",
+      borderBottom: "1px solid #23272D",
+      paddingBottom: "12px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#EDE9E1",
+      fontSize: "13px",
+      fontWeight: 500,
+      borderBottom: "2px solid #C1592E",
+      paddingBottom: "12px",
+      marginBottom: "-13px"
+    }
+  }, "Pipeline"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#4B4E53",
+      fontSize: "13px"
+    },
+    title: "Not yet built"
+  }, "Weekly review"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#4B4E53",
+      fontSize: "13px"
+    },
+    title: "Not yet built"
+  }, "Staging boards")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
       justifyContent: "space-between",
       alignItems: "flex-end",
       flexWrap: "wrap",
@@ -853,7 +947,7 @@ function Dashboard() {
       fontSize: "13px",
       marginBottom: "6px"
     }
-  }, "Mining BD Intelligence — DBM Vircon"), /*#__PURE__*/React.createElement("h1", {
+  }, "Mining business development pipeline"), /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
@@ -874,6 +968,9 @@ function Dashboard() {
     year: "numeric"
   }) : "unknown")), /*#__PURE__*/React.createElement(StrataBar, {
     counts: counts,
+    total: items.length
+  }), /*#__PURE__*/React.createElement(CommodityStrip, {
+    breakdown: commodityBreakdown,
     total: items.length
   }), /*#__PURE__*/React.createElement("div", {
     style: {
