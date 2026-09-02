@@ -481,7 +481,8 @@ function PipelineTrend() {
 }
 function FocusPage({
   items,
-  onOpenItem
+  onOpenItem,
+  bidStatusMap
 }) {
   const [tasks, setTasks] = useState(null);
   useEffect(() => {
@@ -501,13 +502,14 @@ function FocusPage({
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const todayStr = now.toISOString().split("T")[0];
   const in7Str = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const isDeadBid = i => bidStatusMap[i.id] === "Dead Bid";
   const itemsById = {};
   items.forEach(i => {
     itemsById[i.id] = i;
   });
   const newThisWeek = items.filter(i => new Date(i.createdAt) >= weekAgo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const focus = [...items.filter(i => i.tier === "Tier 1"), ...items.filter(i => i.tier === "Tier 2" && i.dbmv === "Cold").sort((a, b) => b.score - a.score).slice(0, 7)];
-  const stale = items.filter(i => (i.tier === "Tier 1" || i.tier === "Tier 2") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo)).sort((a, b) => b.score - a.score).slice(0, 12);
+  const focus = [...items.filter(i => i.tier === "Tier 1" && !isDeadBid(i)), ...items.filter(i => i.tier === "Tier 2" && i.dbmv === "Cold" && !isDeadBid(i)).sort((a, b) => b.score - a.score).slice(0, 7)];
+  const stale = items.filter(i => (i.tier === "Tier 1" || i.tier === "Tier 2") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo) && !isDeadBid(i)).sort((a, b) => b.score - a.score).slice(0, 12);
   const overdueTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date < todayStr) : [];
   const dueThisWeekTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date >= todayStr && t.due_date <= in7Str) : [];
   const itemsWithNoTasks = tasks ? items.filter(i => !tasks.some(t => t.item_id === i.id)).length : 0;
@@ -691,6 +693,58 @@ function CommentsLog({
       month: "short"
     })));
   }));
+}
+const BID_STATUS_STYLE = {
+  "Active Bid": {
+    color: "#6B8F6B",
+    label: "Active Bid"
+  },
+  "Dead Bid": {
+    color: "#71767D",
+    label: "Dead Bid"
+  },
+  "Watching": {
+    color: "#4F7C90",
+    label: "Watching"
+  },
+  "Unclassified": {
+    color: "#4B4E53",
+    label: "Unclassified"
+  }
+};
+function BidStatusBadge({
+  itemId,
+  status,
+  onChange
+}) {
+  const current = status || "Unclassified";
+  const style = BID_STATUS_STYLE[current] || BID_STATUS_STYLE["Unclassified"];
+  return /*#__PURE__*/React.createElement("select", {
+    value: current,
+    onClick: e => e.stopPropagation(),
+    onChange: e => {
+      e.stopPropagation();
+      onChange(itemId, e.target.value);
+    },
+    style: {
+      appearance: "none",
+      background: "transparent",
+      border: `1px solid ${style.color}`,
+      color: style.color,
+      fontSize: "11px",
+      borderRadius: "3px",
+      padding: "2px 8px",
+      cursor: "pointer",
+      fontFamily: "'IBM Plex Sans', sans-serif"
+    }
+  }, Object.keys(BID_STATUS_STYLE).map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s,
+    style: {
+      background: "#1D2126",
+      color: "#EDE9E1"
+    }
+  }, s)));
 }
 function Chip({
   children,
@@ -1385,7 +1439,9 @@ function Row({
   isOpen,
   onToggle,
   commenterName,
-  setCommenterName
+  setCommenterName,
+  bidStatus,
+  onBidStatusChange
 }) {
   const style = TIER_STYLE[item.tier] || TIER_STYLE["Monitor"];
   return /*#__PURE__*/React.createElement("div", {
@@ -1398,7 +1454,7 @@ function Row({
     onClick: onToggle,
     style: {
       display: "grid",
-      gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1.4fr) 110px 64px 120px 60px",
+      gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1.4fr) 110px 64px 120px 100px 60px",
       gap: "14px",
       alignItems: "center",
       padding: "13px 18px 13px 15px",
@@ -1454,7 +1510,11 @@ function Row({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, item.source), /*#__PURE__*/React.createElement("div", {
+  }, item.source), /*#__PURE__*/React.createElement(BidStatusBadge, {
+    itemId: item.id,
+    status: bidStatus,
+    onChange: onBidStatusChange
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "'IBM Plex Mono', monospace",
       color: item.score >= 35 ? "#E9987A" : "#B7BBC1",
@@ -1583,6 +1643,37 @@ function Dashboard() {
   const [openId, setOpenId] = useState(null);
   const [commenterName, setCommenterNameState] = useState("");
   const [view, setView] = useState("pipeline");
+  const [bidStatusMap, setBidStatusMap] = useState({});
+  const [bidStatusFilter, setBidStatusFilter] = useState("");
+  useEffect(() => {
+    async function loadBidStatus() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("bid_status").select("*");
+      if (!error && data) {
+        const map = {};
+        data.forEach(r => {
+          map[r.item_id] = r.status;
+        });
+        setBidStatusMap(map);
+      }
+    }
+    loadBidStatus();
+  }, []);
+  const setBidStatus = async (itemId, status) => {
+    setBidStatusMap(prev => ({
+      ...prev,
+      [itemId]: status
+    }));
+    await supabaseClient.from("bid_status").upsert({
+      item_id: itemId,
+      status,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "item_id"
+    });
+  };
   useEffect(() => {
     const saved = localStorage.getItem("commenter-name");
     if (saved) setCommenterNameState(saved);
@@ -1639,13 +1730,14 @@ function Dashboard() {
       if (state && i.state !== state) return false;
       if (stage && i.stage !== stage) return false;
       if (source && i.source !== source) return false;
+      if (bidStatusFilter && (bidStatusMap[i.id] || "Unclassified") !== bidStatusFilter) return false;
       if (q) {
         const hay = `${i.name} ${i.company}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [items, search, commodity, state, stage, source, tierFilter]);
+  }, [items, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap]);
   const grouped = useMemo(() => {
     const g = {
       "Tier 1": [],
@@ -1659,7 +1751,7 @@ function Dashboard() {
     Object.values(g).forEach(arr => arr.sort((a, b) => a.rank - b.rank));
     return g;
   }, [filtered]);
-  const anyFilterActive = search || commodity || state || stage || source || tierFilter;
+  const anyFilterActive = search || commodity || state || stage || source || tierFilter || bidStatusFilter;
   const clearAll = () => {
     setSearch("");
     setCommodity("");
@@ -1667,6 +1759,7 @@ function Dashboard() {
     setStage("");
     setSource("");
     setTierFilter(null);
+    setBidStatusFilter("");
   };
   const openItemFromActions = itemId => {
     setView("pipeline");
@@ -1782,7 +1875,8 @@ function Dashboard() {
     }
   }, "Week in Focus"), /*#__PURE__*/React.createElement(FocusPage, {
     items: items,
-    onOpenItem: openItemFromActions
+    onOpenItem: openItemFromActions,
+    bidStatusMap: bidStatusMap
   })) : view === "comments" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
@@ -1890,6 +1984,11 @@ function Dashboard() {
     onChange: setSource,
     options: sources,
     placeholder: "Any source"
+  }), /*#__PURE__*/React.createElement(Select, {
+    value: bidStatusFilter,
+    onChange: setBidStatusFilter,
+    options: Object.keys(BID_STATUS_STYLE),
+    placeholder: "Any bid status"
   }), anyFilterActive && /*#__PURE__*/React.createElement("button", {
     onClick: clearAll,
     style: {
@@ -1964,7 +2063,9 @@ function Dashboard() {
       isOpen: openId === item.id,
       onToggle: () => setOpenId(openId === item.id ? null : item.id),
       commenterName: commenterName,
-      setCommenterName: setCommenterName
+      setCommenterName: setCommenterName,
+      bidStatus: bidStatusMap[item.id],
+      onBidStatusChange: setBidStatus
     })))));
   }), filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
