@@ -764,7 +764,10 @@ function SignInControl({
     const {
       error
     } = await supabaseClient.auth.signInWithOtp({
-      email: email.trim()
+      email: email.trim(),
+      options: {
+        emailRedirectTo: window.location.href.split("#")[0].split("?")[0]
+      }
     });
     setSending(false);
     if (error) setError("Couldn't send link. Check the email and try again.");else setSent(true);
