@@ -300,6 +300,127 @@ function CommodityStrip({
     }
   })))));
 }
+function MiniRow({
+  item
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: "10px 14px",
+      borderTop: "1px solid #23272D"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#EDE9E1",
+      fontSize: "13.5px",
+      fontWeight: 500,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, item.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12px",
+      marginTop: "2px"
+    }
+  }, item.company || "Company unknown", " · ", item.commodity, " · ", item.state)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'IBM Plex Mono', monospace",
+      color: item.score >= 35 ? "#E9987A" : "#B7BBC1",
+      fontSize: "13.5px",
+      flexShrink: 0,
+      marginLeft: "12px"
+    }
+  }, item.score));
+}
+function ReviewSection({
+  title,
+  description,
+  items,
+  emptyText
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "36px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, title), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px",
+      marginBottom: "12px"
+    }
+  }, description), items.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "13px",
+      padding: "14px 0"
+    }
+  }, emptyText) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      overflow: "hidden"
+    }
+  }, items.map((item, idx) => /*#__PURE__*/React.createElement("div", {
+    key: item.id,
+    style: {
+      borderTop: idx === 0 ? "none" : undefined
+    }
+  }, /*#__PURE__*/React.createElement(MiniRow, {
+    item: item
+  })))));
+}
+function WeeklyReview({
+  items
+}) {
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const newThisWeek = items.filter(i => new Date(i.createdAt) >= weekAgo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const focus = [...items.filter(i => i.tier === "Tier 1"), ...items.filter(i => i.tier === "Tier 2" && i.dbmv === "Cold").sort((a, b) => b.score - a.score).slice(0, 7)];
+  const stale = items.filter(i => (i.tier === "Tier 1" || i.tier === "Tier 2") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo)).sort((a, b) => b.score - a.score).slice(0, 12);
+  const noNextAction = items.filter(i => !i.nextAction || !i.nextAction.trim()).length;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(ReviewSection, {
+    title: "New this week",
+    description: "Opportunities added to the board in the last 7 days.",
+    items: newThisWeek,
+    emptyText: "Nothing new landed this week."
+  }), /*#__PURE__*/React.createElement(ReviewSection, {
+    title: "This week's focus",
+    description: "Every Tier 1 opportunity, plus the highest-scoring Tier 2 opportunities where no relationship has started yet.",
+    items: focus,
+    emptyText: "No clear focus candidates right now."
+  }), /*#__PURE__*/React.createElement(ReviewSection, {
+    title: "Needs a second look",
+    description: "Tier 1 and Tier 2 opportunities that haven't been reviewed in 30+ days.",
+    items: stale,
+    emptyText: "Everything's been reviewed recently."
+  }), noNextAction > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #2C3138",
+      borderRadius: "4px",
+      padding: "16px 18px",
+      color: "#9A9DA2",
+      fontSize: "13px",
+      lineHeight: 1.6
+    }
+  }, noNextAction, " of ", items.length, " opportunities have no next action noted. Setting one whenever you review an opportunity is what will make an \"overdue actions\" view possible here in future."));
+}
 function Chip({
   children,
   active,
@@ -799,6 +920,7 @@ function Dashboard() {
   const [tierFilter, setTierFilter] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [commenterName, setCommenterNameState] = useState("");
+  const [view, setView] = useState("pipeline");
   useEffect(() => {
     const saved = localStorage.getItem("commenter-name");
     if (saved) setCommenterNameState(saved);
@@ -912,28 +1034,51 @@ function Dashboard() {
       borderBottom: "1px solid #23272D",
       paddingBottom: "12px"
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("pipeline"),
     style: {
-      color: "#EDE9E1",
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      color: view === "pipeline" ? "#EDE9E1" : "#71767D",
       fontSize: "13px",
       fontWeight: 500,
-      borderBottom: "2px solid #C1592E",
+      borderBottom: view === "pipeline" ? "2px solid #C1592E" : "2px solid transparent",
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Pipeline"), /*#__PURE__*/React.createElement("span", {
+  }, "Pipeline"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("review"),
     style: {
-      color: "#4B4E53",
-      fontSize: "13px"
-    },
-    title: "Not yet built"
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      color: view === "review" ? "#EDE9E1" : "#71767D",
+      fontSize: "13px",
+      fontWeight: 500,
+      borderBottom: view === "review" ? "2px solid #C1592E" : "2px solid transparent",
+      paddingBottom: "12px",
+      marginBottom: "-13px"
+    }
   }, "Weekly review"), /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#4B4E53",
       fontSize: "13px"
     },
     title: "Not yet built"
-  }, "Staging boards")), /*#__PURE__*/React.createElement("div", {
+  }, "Staging boards")), view === "review" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "28px",
+      color: "#EDE9E1",
+      margin: "0 0 28px 0"
+    }
+  }, "Weekly review"), /*#__PURE__*/React.createElement(WeeklyReview, {
+    items: items
+  })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
@@ -1112,6 +1257,6 @@ function Dashboard() {
       padding: "40px 0",
       textAlign: "center"
     }
-  }, "No opportunities match these filters."))));
+  }, "No opportunities match these filters.")))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(Dashboard, null));
