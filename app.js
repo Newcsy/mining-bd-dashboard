@@ -715,12 +715,14 @@ const BID_STATUS_STYLE = {
 function BidStatusBadge({
   itemId,
   status,
-  onChange
+  onChange,
+  disabled
 }) {
   const current = status || "Unclassified";
   const style = BID_STATUS_STYLE[current] || BID_STATUS_STYLE["Unclassified"];
   return /*#__PURE__*/React.createElement("select", {
     value: current,
+    disabled: disabled,
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
@@ -734,8 +736,9 @@ function BidStatusBadge({
       fontSize: "11px",
       borderRadius: "3px",
       padding: "2px 8px",
-      cursor: "pointer",
-      fontFamily: "'IBM Plex Sans', sans-serif"
+      cursor: disabled ? "default" : "pointer",
+      fontFamily: "'IBM Plex Sans', sans-serif",
+      opacity: disabled ? 0.6 : 1
     }
   }, Object.keys(BID_STATUS_STYLE).map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
@@ -745,6 +748,111 @@ function BidStatusBadge({
       color: "#EDE9E1"
     }
   }, s)));
+}
+function SignInControl({
+  session
+}) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState(null);
+  const [sending, setSending] = useState(false);
+  const sendLink = async () => {
+    if (!email.trim()) return;
+    setSending(true);
+    setError(null);
+    const {
+      error
+    } = await supabaseClient.auth.signInWithOtp({
+      email: email.trim()
+    });
+    setSending(false);
+    if (error) setError("Couldn't send link. Check the email and try again.");else setSent(true);
+  };
+  const signOut = async () => {
+    await supabaseClient.auth.signOut();
+  };
+  if (session) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        fontSize: "12.5px"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#71767D"
+      }
+    }, session.user.email), /*#__PURE__*/React.createElement("button", {
+      onClick: signOut,
+      style: {
+        background: "transparent",
+        border: "1px solid #2C3138",
+        color: "#9A9DA2",
+        borderRadius: "3px",
+        padding: "4px 10px",
+        cursor: "pointer",
+        fontSize: "12px"
+      }
+    }, "Sign out"));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative"
+    }
+  }, !open ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => setOpen(true),
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: "#9A9DA2",
+      borderRadius: "3px",
+      padding: "5px 12px",
+      cursor: "pointer",
+      fontSize: "12.5px"
+    }
+  }, "Sign in to edit") : sent ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12.5px"
+    }
+  }, "Check your email for a sign-in link.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: email,
+    onChange: e => setEmail(e.target.value),
+    placeholder: "you@company.com",
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "5px 10px"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: sendLink,
+    disabled: sending,
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: "#EDE9E1",
+      borderRadius: "3px",
+      padding: "5px 12px",
+      cursor: "pointer",
+      fontSize: "12.5px"
+    }
+  }, sending ? "Sending…" : "Send link"), error && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C1592E",
+      fontSize: "12px"
+    }
+  }, error)));
 }
 function Chip({
   children,
@@ -810,7 +918,8 @@ function Select({
   }));
 }
 function TaskList({
-  itemId
+  itemId,
+  canEdit
 }) {
   const [tasks, setTasks] = useState(null);
   const [text, setText] = useState("");
@@ -902,10 +1011,11 @@ function TaskList({
     }, /*#__PURE__*/React.createElement("input", {
       type: "checkbox",
       checked: !!t.done,
+      disabled: !canEdit,
       onChange: () => toggleDone(t),
       style: {
         marginTop: "3px",
-        cursor: "pointer",
+        cursor: canEdit ? "pointer" : "default",
         flexShrink: 0
       }
     }), /*#__PURE__*/React.createElement("div", {
@@ -927,7 +1037,7 @@ function TaskList({
       day: "numeric",
       month: "short"
     }))));
-  })), /*#__PURE__*/React.createElement("div", {
+  })), canEdit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: "6px"
@@ -981,11 +1091,12 @@ function TaskList({
       padding: "6px 14px",
       cursor: text.trim() ? "pointer" : "default"
     }
-  }, saving ? "Saving…" : "Add task")));
+  }, saving ? "Saving…" : "Add task"))));
 }
 function ContactList({
   itemId,
-  company
+  company,
+  canEdit
 }) {
   const [contacts, setContacts] = useState(null);
   const [name, setName] = useState("");
@@ -1093,7 +1204,7 @@ function ContactList({
       fontSize: "12px",
       textDecoration: "none"
     }
-  }, c.email))), /*#__PURE__*/React.createElement("button", {
+  }, c.email))), canEdit && /*#__PURE__*/React.createElement("button", {
     onClick: () => removeContact(c.id),
     style: {
       background: "none",
@@ -1102,7 +1213,7 @@ function ContactList({
       cursor: "pointer",
       fontSize: "12px"
     }
-  }, "Remove")))), /*#__PURE__*/React.createElement("div", {
+  }, "Remove")))), canEdit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: "6px",
@@ -1171,12 +1282,13 @@ function ContactList({
       padding: "6px 14px",
       cursor: name.trim() ? "pointer" : "default"
     }
-  }, saving ? "Saving…" : "Add contact")));
+  }, saving ? "Saving…" : "Add contact"))));
 }
 function CommentThread({
   itemId,
   commenterName,
-  setCommenterName
+  setCommenterName,
+  canEdit
 }) {
   const [comments, setComments] = useState(null);
   const [text, setText] = useState("");
@@ -1273,7 +1385,7 @@ function CommentThread({
     style: {
       color: "#C7CAD0"
     }
-  }, c.text)))), /*#__PURE__*/React.createElement("input", {
+  }, c.text)))), canEdit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
     value: commenterName,
     onChange: e => setCommenterName(e.target.value),
     placeholder: "Your name",
@@ -1329,7 +1441,7 @@ function CommentThread({
       padding: "6px 14px",
       cursor: text.trim() ? "pointer" : "default"
     }
-  }, saving ? "Saving…" : "Add comment")));
+  }, saving ? "Saving…" : "Add comment"))));
 }
 function OutreachDrafter({
   item,
@@ -1445,7 +1557,8 @@ function Row({
   onTierOverride,
   onClearTierOverride,
   onFundingChange,
-  onEngagementChange
+  onEngagementChange,
+  canEdit
 }) {
   const style = TIER_STYLE[item.tier] || TIER_STYLE["Monitor"];
   return /*#__PURE__*/React.createElement("div", {
@@ -1517,7 +1630,8 @@ function Row({
   }, item.source), /*#__PURE__*/React.createElement(BidStatusBadge, {
     itemId: item.id,
     status: bidStatus,
-    onChange: onBidStatusChange
+    onChange: onBidStatusChange,
+    disabled: !canEdit
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "'IBM Plex Mono', monospace",
@@ -1550,6 +1664,7 @@ function Row({
     }
   }, /*#__PURE__*/React.createElement("select", {
     value: item.tier,
+    disabled: !canEdit,
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
@@ -1561,7 +1676,8 @@ function Row({
       borderRadius: "3px",
       color: "#EDE9E1",
       fontSize: "12.5px",
-      padding: "4px 8px"
+      padding: "4px 8px",
+      opacity: canEdit ? 1 : 0.6
     }
   }, ["Tier 1", "Tier 2", "Monitor", "Archive"].map(t => /*#__PURE__*/React.createElement("option", {
     key: t,
@@ -1605,6 +1721,7 @@ function Row({
     }
   }, "Funding status"), /*#__PURE__*/React.createElement("select", {
     value: item.funding || "",
+    disabled: !canEdit,
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
@@ -1616,7 +1733,8 @@ function Row({
       borderRadius: "3px",
       color: "#EDE9E1",
       fontSize: "12.5px",
-      padding: "4px 8px"
+      padding: "4px 8px",
+      opacity: canEdit ? 1 : 0.6
     }
   }, ["", "Funded", "Raising", "Unfunded", "Unclear"].map(f => /*#__PURE__*/React.createElement("option", {
     key: f,
@@ -1629,6 +1747,7 @@ function Row({
     }
   }, "Position"), /*#__PURE__*/React.createElement("select", {
     value: item.dbmv || "",
+    disabled: !canEdit,
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
@@ -1640,7 +1759,8 @@ function Row({
       borderRadius: "3px",
       color: "#EDE9E1",
       fontSize: "12.5px",
-      padding: "4px 8px"
+      padding: "4px 8px",
+      opacity: canEdit ? 1 : 0.6
     }
   }, ["Cold", "Warm", "Active"].map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
@@ -1705,7 +1825,8 @@ function Row({
     }
   }, /*#__PURE__*/React.createElement(ContactList, {
     itemId: item.id,
-    company: item.company || item.name
+    company: item.company || item.name,
+    canEdit: canEdit
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       gridColumn: "1 / -1",
@@ -1713,7 +1834,8 @@ function Row({
       paddingTop: "16px"
     }
   }, /*#__PURE__*/React.createElement(TaskList, {
-    itemId: item.id
+    itemId: item.id,
+    canEdit: canEdit
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       gridColumn: "1 / -1",
@@ -1723,7 +1845,8 @@ function Row({
   }, /*#__PURE__*/React.createElement(CommentThread, {
     itemId: item.id,
     commenterName: commenterName,
-    setCommenterName: setCommenterName
+    setCommenterName: setCommenterName,
+    canEdit: canEdit
   }))));
 }
 function Dashboard() {
@@ -1739,6 +1862,19 @@ function Dashboard() {
   const [openId, setOpenId] = useState(null);
   const [commenterName, setCommenterNameState] = useState("");
   const [view, setView] = useState("pipeline");
+  const [session, setSession] = useState(null);
+  const canEdit = !!session;
+  useEffect(() => {
+    supabaseClient.auth.getSession().then(({
+      data
+    }) => setSession(data.session));
+    const {
+      data: listener
+    } = supabaseClient.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
   const [bidStatusMap, setBidStatusMap] = useState({});
   const [bidStatusFilter, setBidStatusFilter] = useState("");
   useEffect(() => {
@@ -2015,7 +2151,14 @@ function Dashboard() {
       gap: "18px",
       marginBottom: "24px",
       borderBottom: "1px solid #23272D",
-      paddingBottom: "12px"
+      paddingBottom: "12px",
+      justifyContent: "space-between",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "18px"
     }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setView("pipeline"),
@@ -2065,7 +2208,9 @@ function Dashboard() {
       fontSize: "13px"
     },
     title: "Not yet built"
-  }, "Staging boards")), view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+  }, "Staging boards")), /*#__PURE__*/React.createElement(SignInControl, {
+    session: session
+  })), view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
@@ -2269,7 +2414,8 @@ function Dashboard() {
       onTierOverride: setTierOverride,
       onClearTierOverride: clearTierOverride,
       onFundingChange: setFundingStatus,
-      onEngagementChange: setEngagementStage
+      onEngagementChange: setEngagementStage,
+      canEdit: canEdit
     })))));
   }), filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
