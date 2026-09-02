@@ -421,6 +421,138 @@ function WeeklyReview({
     }
   }, noNextAction, " of ", items.length, " opportunities have no next action noted. Setting one whenever you review an opportunity is what will make an \"overdue actions\" view possible here in future."));
 }
+function ActionItems({
+  items,
+  onOpenItem
+}) {
+  const [comments, setComments] = useState(null);
+  const [error, setError] = useState(null);
+  const [showDone, setShowDone] = useState(false);
+  const load = async () => {
+    const {
+      data,
+      error
+    } = await supabaseClient.from("comments").select("*").order("created_at", {
+      ascending: false
+    });
+    if (error) setError("Couldn't load action items.");else setComments(data);
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  const toggleResolved = async comment => {
+    const nextResolved = !comment.resolved;
+    setComments(comments.map(c => c.id === comment.id ? {
+      ...c,
+      resolved: nextResolved
+    } : c));
+    await supabaseClient.from("comments").update({
+      resolved: nextResolved
+    }).eq("id", comment.id);
+  };
+  if (error) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#C1592E",
+      fontSize: "13px"
+    }
+  }, error);
+  if (comments === null) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "13px"
+    }
+  }, "Loading…");
+  const itemsById = {};
+  items.forEach(i => {
+    itemsById[i.id] = i;
+  });
+  const visible = comments.filter(c => showDone || !c.resolved);
+  const openCount = comments.filter(c => !c.resolved).length;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: "16px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px"
+    }
+  }, openCount, " open, ", comments.length - openCount, " done"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowDone(!showDone),
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: "#9A9DA2",
+      borderRadius: "3px",
+      fontSize: "12.5px",
+      padding: "5px 12px",
+      cursor: "pointer"
+    }
+  }, showDone ? "Hide done" : "Show done")), visible.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "13px",
+      padding: "20px 0"
+    }
+  }, "Nothing here — comment on an opportunity to create an action item.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      overflow: "hidden"
+    }
+  }, visible.map((c, idx) => {
+    const item = itemsById[c.item_id];
+    return /*#__PURE__*/React.createElement("div", {
+      key: c.id,
+      style: {
+        display: "flex",
+        gap: "10px",
+        alignItems: "flex-start",
+        padding: "12px 16px",
+        borderTop: idx === 0 ? "none" : "1px solid #23272D"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: !!c.resolved,
+      onChange: () => toggleResolved(c),
+      style: {
+        marginTop: "3px",
+        cursor: "pointer",
+        flexShrink: 0
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0,
+        flex: 1,
+        opacity: c.resolved ? 0.5 : 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#C7CAD0",
+        fontSize: "13.5px",
+        textDecoration: c.resolved ? "line-through" : "none"
+      }
+    }, c.text), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: "4px",
+        fontSize: "12px",
+        color: "#71767D"
+      }
+    }, item ? /*#__PURE__*/React.createElement("span", {
+      onClick: () => onOpenItem(item.id),
+      style: {
+        color: "#9CC3D4",
+        cursor: "pointer"
+      }
+    }, item.name) : /*#__PURE__*/React.createElement("span", null, "Unknown opportunity"), " · ", c.author, " · ", new Date(c.created_at).toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short"
+    }))));
+  })));
+}
 function Chip({
   children,
   active,
@@ -493,6 +625,15 @@ function CommentThread({
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const loadComments = async () => {
+    const {
+      data,
+      error
+    } = await supabaseClient.from("comments").select("*").eq("item_id", itemId).order("created_at", {
+      ascending: true
+    });
+    setComments(error ? [] : data);
+  };
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -519,7 +660,8 @@ function CommentThread({
     } = await supabaseClient.from("comments").insert({
       item_id: itemId,
       author: commenterName || "Anonymous",
-      text: text.trim()
+      text: text.trim(),
+      resolved: false
     }).select();
     if (error) {
       setError("Couldn't save comment. Try again.");
@@ -528,6 +670,16 @@ function CommentThread({
       setText("");
     }
     setSaving(false);
+  };
+  const toggleResolved = async comment => {
+    const nextResolved = !comment.resolved;
+    setComments(comments.map(c => c.id === comment.id ? {
+      ...c,
+      resolved: nextResolved
+    } : c));
+    await supabaseClient.from("comments").update({
+      resolved: nextResolved
+    }).eq("id", comment.id);
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -556,7 +708,24 @@ function CommentThread({
     key: c.id,
     style: {
       fontSize: "13px",
-      lineHeight: 1.5
+      lineHeight: 1.5,
+      display: "flex",
+      gap: "8px",
+      alignItems: "flex-start"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: !!c.resolved,
+    onChange: () => toggleResolved(c),
+    style: {
+      marginTop: "3px",
+      cursor: "pointer",
+      flexShrink: 0
+    },
+    title: c.resolved ? "Mark as not done" : "Mark as done"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      opacity: c.resolved ? 0.5 : 1
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
@@ -572,9 +741,10 @@ function CommentThread({
     month: "short"
   })), /*#__PURE__*/React.createElement("div", {
     style: {
-      color: "#C7CAD0"
+      color: "#C7CAD0",
+      textDecoration: c.resolved ? "line-through" : "none"
     }
-  }, c.text)))), /*#__PURE__*/React.createElement("input", {
+  }, c.text))))), /*#__PURE__*/React.createElement("input", {
     value: commenterName,
     onChange: e => setCommenterName(e.target.value),
     placeholder: "Your name",
@@ -592,7 +762,7 @@ function CommentThread({
   }), /*#__PURE__*/React.createElement("textarea", {
     value: text,
     onChange: e => setText(e.target.value),
-    placeholder: "Add a comment",
+    placeholder: "Add a comment or action item",
     rows: 2,
     style: {
       width: "100%",
@@ -982,6 +1152,10 @@ function Dashboard() {
     setSource("");
     setTierFilter(null);
   };
+  const openItemFromActions = itemId => {
+    setView("pipeline");
+    setOpenId(itemId);
+  };
   if (loadError) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
@@ -1062,7 +1236,21 @@ function Dashboard() {
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Weekly review"), /*#__PURE__*/React.createElement("span", {
+  }, "Weekly review"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("actions"),
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      color: view === "actions" ? "#EDE9E1" : "#71767D",
+      fontSize: "13px",
+      fontWeight: 500,
+      borderBottom: view === "actions" ? "2px solid #C1592E" : "2px solid transparent",
+      paddingBottom: "12px",
+      marginBottom: "-13px"
+    }
+  }, "Action items"), /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#4B4E53",
       fontSize: "13px"
@@ -1078,6 +1266,17 @@ function Dashboard() {
     }
   }, "Weekly review"), /*#__PURE__*/React.createElement(WeeklyReview, {
     items: items
+  })) : view === "actions" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "28px",
+      color: "#EDE9E1",
+      margin: "0 0 28px 0"
+    }
+  }, "Action items"), /*#__PURE__*/React.createElement(ActionItems, {
+    items: items,
+    onOpenItem: openItemFromActions
   })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
