@@ -1441,7 +1441,9 @@ function Row({
   commenterName,
   setCommenterName,
   bidStatus,
-  onBidStatusChange
+  onBidStatusChange,
+  onTierOverride,
+  onClearTierOverride
 }) {
   const style = TIER_STYLE[item.tier] || TIER_STYLE["Monitor"];
   return /*#__PURE__*/React.createElement("div", {
@@ -1531,7 +1533,57 @@ function Row({
       marginTop: "-1px",
       paddingTop: "16px"
     }
-  }, /*#__PURE__*/React.createElement(Detail, {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "4px"
+    }
+  }, "Tier"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("select", {
+    value: item.tier,
+    onClick: e => e.stopPropagation(),
+    onChange: e => {
+      e.stopPropagation();
+      onTierOverride(item.id, e.target.value);
+    },
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "4px 8px"
+    }
+  }, ["Tier 1", "Tier 2", "Monitor", "Archive"].map(t => /*#__PURE__*/React.createElement("option", {
+    key: t,
+    value: t
+  }, t))), item.tier !== item.algoTier ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#71767D",
+      fontSize: "11.5px"
+    }
+  }, "overridden — algorithm says ", item.algoTier, " ", /*#__PURE__*/React.createElement("span", {
+    onClick: e => {
+      e.stopPropagation();
+      onClearTierOverride(item.id);
+    },
+    style: {
+      color: "#9CC3D4",
+      cursor: "pointer"
+    }
+  }, "(reset)")) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11.5px"
+    }
+  }, "from algorithm"))), /*#__PURE__*/React.createElement(Detail, {
     label: "Trigger event",
     value: item.trigger
   }), /*#__PURE__*/React.createElement(Detail, {
@@ -1674,6 +1726,46 @@ function Dashboard() {
       onConflict: "item_id"
     });
   };
+  const [tierOverrideMap, setTierOverrideMap] = useState({});
+  useEffect(() => {
+    async function loadTierOverrides() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("tier_overrides").select("*");
+      if (!error && data) {
+        const map = {};
+        data.forEach(r => {
+          map[r.item_id] = r.tier;
+        });
+        setTierOverrideMap(map);
+      }
+    }
+    loadTierOverrides();
+  }, []);
+  const setTierOverride = async (itemId, tier) => {
+    setTierOverrideMap(prev => ({
+      ...prev,
+      [itemId]: tier
+    }));
+    await supabaseClient.from("tier_overrides").upsert({
+      item_id: itemId,
+      tier,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "item_id"
+    });
+  };
+  const clearTierOverride = async itemId => {
+    setTierOverrideMap(prev => {
+      const next = {
+        ...prev
+      };
+      delete next[itemId];
+      return next;
+    });
+    await supabaseClient.from("tier_overrides").delete().eq("item_id", itemId);
+  };
   useEffect(() => {
     const saved = localStorage.getItem("commenter-name");
     if (saved) setCommenterNameState(saved);
@@ -1715,16 +1807,23 @@ function Dashboard() {
     }
     recordSnapshot();
   }, [items, generatedAt]);
-  const counts = useCounts(items || []);
-  const commodityBreakdown = useCommodityBreakdown(items || []);
-  const commodities = useMemo(() => uniqueSorted(items || [], "commodity"), [items]);
-  const states = useMemo(() => uniqueSorted(items || [], "state"), [items]);
-  const stages = useMemo(() => uniqueSorted(items || [], "stage"), [items]);
-  const sources = useMemo(() => uniqueSorted(items || [], "source"), [items]);
+  const effectiveItems = useMemo(() => {
+    return (items || []).map(i => ({
+      ...i,
+      algoTier: i.tier,
+      tier: tierOverrideMap[i.id] || i.tier
+    }));
+  }, [items, tierOverrideMap]);
+  const counts = useCounts(effectiveItems);
+  const commodityBreakdown = useCommodityBreakdown(effectiveItems);
+  const commodities = useMemo(() => uniqueSorted(effectiveItems, "commodity"), [effectiveItems]);
+  const states = useMemo(() => uniqueSorted(effectiveItems, "state"), [effectiveItems]);
+  const stages = useMemo(() => uniqueSorted(effectiveItems, "stage"), [effectiveItems]);
+  const sources = useMemo(() => uniqueSorted(effectiveItems, "source"), [effectiveItems]);
   const filtered = useMemo(() => {
     if (!items) return [];
     const q = search.trim().toLowerCase();
-    return items.filter(i => {
+    return effectiveItems.filter(i => {
       if (tierFilter && i.tier !== tierFilter) return false;
       if (commodity && i.commodity !== commodity) return false;
       if (state && i.state !== state) return false;
@@ -1737,7 +1836,7 @@ function Dashboard() {
       }
       return true;
     });
-  }, [items, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap]);
+  }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap]);
   const grouped = useMemo(() => {
     const g = {
       "Tier 1": [],
@@ -1874,7 +1973,7 @@ function Dashboard() {
       margin: "0 0 28px 0"
     }
   }, "Week in Focus"), /*#__PURE__*/React.createElement(FocusPage, {
-    items: items,
+    items: effectiveItems,
     onOpenItem: openItemFromActions,
     bidStatusMap: bidStatusMap
   })) : view === "comments" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
@@ -1886,7 +1985,7 @@ function Dashboard() {
       margin: "0 0 28px 0"
     }
   }, "Comments"), /*#__PURE__*/React.createElement(CommentsLog, {
-    items: items,
+    items: effectiveItems,
     onOpenItem: openItemFromActions
   })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1911,7 +2010,7 @@ function Dashboard() {
       margin: 0,
       letterSpacing: "-0.01em"
     }
-  }, items.length, " opportunities in the pipeline")), /*#__PURE__*/React.createElement("div", {
+  }, effectiveItems.length, " opportunities in the pipeline")), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "12.5px",
@@ -2065,7 +2164,9 @@ function Dashboard() {
       commenterName: commenterName,
       setCommenterName: setCommenterName,
       bidStatus: bidStatusMap[item.id],
-      onBidStatusChange: setBidStatus
+      onBidStatusChange: setBidStatus,
+      onTierOverride: setTierOverride,
+      onClearTierOverride: clearTierOverride
     })))));
   }), filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
