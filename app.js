@@ -385,17 +385,208 @@ function ReviewSection({
     item: item
   })))));
 }
-function WeeklyReview({
-  items
+function PipelineTrend() {
+  const [snapshots, setSnapshots] = useState(null);
+  useEffect(() => {
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("pipeline_snapshots").select("*").order("snapshot_date", {
+        ascending: true
+      }).limit(12);
+      setSnapshots(error ? [] : data);
+    }
+    load();
+  }, []);
+  if (snapshots === null) return null;
+  if (snapshots.length < 2) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#5E6268",
+        fontSize: "13px",
+        marginBottom: "32px"
+      }
+    }, "Pipeline trend will build up here as this page gets opened after each weekly refresh.");
+  }
+  const max = Math.max(...snapshots.map(s => s.total_count || 0), 1);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "36px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, "Pipeline over time"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px",
+      marginBottom: "14px"
+    }
+  }, "Total tracked opportunities at each weekly snapshot."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "flex-end",
+      gap: "6px",
+      height: "70px"
+    }
+  }, snapshots.map(s => /*#__PURE__*/React.createElement("div", {
+    key: s.id,
+    title: `${s.snapshot_date}: ${s.total_count} total`,
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      height: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      maxWidth: "28px",
+      height: `${(s.total_count || 0) / max * 100}%`,
+      background: "#4F7C90",
+      borderRadius: "2px 2px 0 0",
+      minHeight: "2px"
+    }
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      marginTop: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px"
+    }
+  }, new Date(snapshots[0].snapshot_date).toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short"
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px"
+    }
+  }, new Date(snapshots[snapshots.length - 1].snapshot_date).toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short"
+  }))));
+}
+function FocusPage({
+  items,
+  onOpenItem
 }) {
+  const [tasks, setTasks] = useState(null);
+  useEffect(() => {
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("tasks").select("*").order("due_date", {
+        ascending: true
+      });
+      setTasks(error ? [] : data);
+    }
+    load();
+  }, []);
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const todayStr = now.toISOString().split("T")[0];
+  const in7Str = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const itemsById = {};
+  items.forEach(i => {
+    itemsById[i.id] = i;
+  });
   const newThisWeek = items.filter(i => new Date(i.createdAt) >= weekAgo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   const focus = [...items.filter(i => i.tier === "Tier 1"), ...items.filter(i => i.tier === "Tier 2" && i.dbmv === "Cold").sort((a, b) => b.score - a.score).slice(0, 7)];
   const stale = items.filter(i => (i.tier === "Tier 1" || i.tier === "Tier 2") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo)).sort((a, b) => b.score - a.score).slice(0, 12);
-  const noNextAction = items.filter(i => !i.nextAction || !i.nextAction.trim()).length;
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(ReviewSection, {
+  const overdueTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date < todayStr) : [];
+  const dueThisWeekTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date >= todayStr && t.due_date <= in7Str) : [];
+  const itemsWithNoTasks = tasks ? items.filter(i => !tasks.some(t => t.item_id === i.id)).length : 0;
+  const TaskRow = ({
+    task
+  }) => {
+    const item = itemsById[task.item_id];
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "10px 14px",
+        borderTop: "1px solid #23272D"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#EDE9E1",
+        fontSize: "13.5px"
+      }
+    }, task.text), /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#71767D",
+        fontSize: "12px",
+        marginTop: "2px"
+      }
+    }, item ? /*#__PURE__*/React.createElement("span", {
+      onClick: () => onOpenItem(item.id),
+      style: {
+        color: "#9CC3D4",
+        cursor: "pointer"
+      }
+    }, item.name) : "Unknown opportunity")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#E9987A",
+        fontSize: "12px",
+        flexShrink: 0,
+        marginLeft: "12px"
+      }
+    }, new Date(task.due_date).toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short"
+    })));
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PipelineTrend, null), tasks !== null && (overdueTasks.length > 0 || dueThisWeekTasks.length > 0) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "36px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#E9987A",
+      margin: "0 0 4px 0"
+    }
+  }, "Tasks due"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px",
+      marginBottom: "12px"
+    }
+  }, "Overdue and due-this-week tasks across the whole pipeline."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      overflow: "hidden"
+    }
+  }, overdueTasks.map(t => /*#__PURE__*/React.createElement(TaskRow, {
+    key: t.id,
+    task: t
+  })), dueThisWeekTasks.map(t => /*#__PURE__*/React.createElement(TaskRow, {
+    key: t.id,
+    task: t
+  })))), /*#__PURE__*/React.createElement(ReviewSection, {
     title: "New this week",
     description: "Opportunities added to the board in the last 7 days.",
     items: newThisWeek,
@@ -410,7 +601,7 @@ function WeeklyReview({
     description: "Tier 1 and Tier 2 opportunities that haven't been reviewed in 30+ days.",
     items: stale,
     emptyText: "Everything's been reviewed recently."
-  }), noNextAction > 0 && /*#__PURE__*/React.createElement("div", {
+  }), tasks !== null && itemsWithNoTasks > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       border: "1px solid #2C3138",
       borderRadius: "4px",
@@ -419,37 +610,26 @@ function WeeklyReview({
       fontSize: "13px",
       lineHeight: 1.6
     }
-  }, noNextAction, " of ", items.length, " opportunities have no next action noted. Setting one whenever you review an opportunity is what will make an \"overdue actions\" view possible here in future."));
+  }, itemsWithNoTasks, " of ", items.length, " opportunities have no tasks set. Add a task with a due date on an opportunity to have it show up here when it's due."));
 }
-function ActionItems({
+function CommentsLog({
   items,
   onOpenItem
 }) {
   const [comments, setComments] = useState(null);
   const [error, setError] = useState(null);
-  const [showDone, setShowDone] = useState(false);
-  const load = async () => {
-    const {
-      data,
-      error
-    } = await supabaseClient.from("comments").select("*").order("created_at", {
-      ascending: false
-    });
-    if (error) setError("Couldn't load action items.");else setComments(data);
-  };
   useEffect(() => {
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("comments").select("*").order("created_at", {
+        ascending: false
+      });
+      if (error) setError("Couldn't load comments.");else setComments(data);
+    }
     load();
   }, []);
-  const toggleResolved = async comment => {
-    const nextResolved = !comment.resolved;
-    setComments(comments.map(c => c.id === comment.id ? {
-      ...c,
-      resolved: nextResolved
-    } : c));
-    await supabaseClient.from("comments").update({
-      resolved: nextResolved
-    }).eq("id", comment.id);
-  };
   if (error) return /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#C1592E",
@@ -466,74 +646,33 @@ function ActionItems({
   items.forEach(i => {
     itemsById[i.id] = i;
   });
-  const visible = comments.filter(c => showDone || !c.resolved);
-  const openCount = comments.filter(c => !c.resolved).length;
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: "16px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: "#71767D",
-      fontSize: "13px"
-    }
-  }, openCount, " open, ", comments.length - openCount, " done"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setShowDone(!showDone),
-    style: {
-      background: "transparent",
-      border: "1px solid #2C3138",
-      color: "#9A9DA2",
-      borderRadius: "3px",
-      fontSize: "12.5px",
-      padding: "5px 12px",
-      cursor: "pointer"
-    }
-  }, showDone ? "Hide done" : "Show done")), visible.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: "#5E6268",
-      fontSize: "13px",
-      padding: "20px 0"
-    }
-  }, "Nothing here — comment on an opportunity to create an action item.") : /*#__PURE__*/React.createElement("div", {
+  if (comments.length === 0) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#5E6268",
+        fontSize: "13px",
+        padding: "20px 0"
+      }
+    }, "No comments yet — comment on an opportunity to see it here.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
     style: {
       border: "1px solid #23272D",
       borderRadius: "4px",
       overflow: "hidden"
     }
-  }, visible.map((c, idx) => {
+  }, comments.map((c, idx) => {
     const item = itemsById[c.item_id];
     return /*#__PURE__*/React.createElement("div", {
       key: c.id,
       style: {
-        display: "flex",
-        gap: "10px",
-        alignItems: "flex-start",
         padding: "12px 16px",
         borderTop: idx === 0 ? "none" : "1px solid #23272D"
-      }
-    }, /*#__PURE__*/React.createElement("input", {
-      type: "checkbox",
-      checked: !!c.resolved,
-      onChange: () => toggleResolved(c),
-      style: {
-        marginTop: "3px",
-        cursor: "pointer",
-        flexShrink: 0
-      }
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        minWidth: 0,
-        flex: 1,
-        opacity: c.resolved ? 0.5 : 1
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
         color: "#C7CAD0",
-        fontSize: "13.5px",
-        textDecoration: c.resolved ? "line-through" : "none"
+        fontSize: "13.5px"
       }
     }, c.text), /*#__PURE__*/React.createElement("div", {
       style: {
@@ -550,8 +689,8 @@ function ActionItems({
     }, item.name) : /*#__PURE__*/React.createElement("span", null, "Unknown opportunity"), " · ", c.author, " · ", new Date(c.created_at).toLocaleDateString("en-AU", {
       day: "numeric",
       month: "short"
-    }))));
-  })));
+    })));
+  }));
 }
 function Chip({
   children,
@@ -616,6 +755,370 @@ function Select({
     }
   }));
 }
+function TaskList({
+  itemId
+}) {
+  const [tasks, setTasks] = useState(null);
+  const [text, setText] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("tasks").select("*").eq("item_id", itemId).order("due_date", {
+        ascending: true
+      });
+      if (!cancelled) setTasks(error ? [] : data);
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+  const addTask = async () => {
+    if (!text.trim()) return;
+    setSaving(true);
+    setError(null);
+    const {
+      data,
+      error
+    } = await supabaseClient.from("tasks").insert({
+      item_id: itemId,
+      text: text.trim(),
+      due_date: dueDate || null,
+      done: false
+    }).select();
+    if (error) {
+      setError("Couldn't save task. Try again.");
+    } else {
+      setTasks([...(tasks || []), data[0]].sort((a, b) => (a.due_date || "9999").localeCompare(b.due_date || "9999")));
+      setText("");
+      setDueDate("");
+    }
+    setSaving(false);
+  };
+  const toggleDone = async task => {
+    const nextDone = !task.done;
+    setTasks(tasks.map(t => t.id === task.id ? {
+      ...t,
+      done: nextDone
+    } : t));
+    await supabaseClient.from("tasks").update({
+      done: nextDone
+    }).eq("id", task.id);
+  };
+  const todayStr = new Date().toISOString().split("T")[0];
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "8px"
+    }
+  }, "Tasks"), tasks === null ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "12.5px"
+    }
+  }, "Loading…") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: "6px",
+      marginBottom: "10px"
+    }
+  }, tasks.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "12.5px"
+    }
+  }, "No tasks yet."), tasks.map(t => {
+    const overdue = t.due_date && t.due_date < todayStr && !t.done;
+    return /*#__PURE__*/React.createElement("div", {
+      key: t.id,
+      style: {
+        display: "flex",
+        gap: "8px",
+        alignItems: "flex-start",
+        fontSize: "13px"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: !!t.done,
+      onChange: () => toggleDone(t),
+      style: {
+        marginTop: "3px",
+        cursor: "pointer",
+        flexShrink: 0
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        opacity: t.done ? 0.5 : 1
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#C7CAD0",
+        textDecoration: t.done ? "line-through" : "none"
+      }
+    }, t.text), t.due_date && /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: "8px",
+        fontSize: "11.5px",
+        color: overdue ? "#E9987A" : "#5E6268"
+      }
+    }, overdue ? "overdue " : "due ", new Date(t.due_date).toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short"
+    }))));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: text,
+    onChange: e => setText(e.target.value),
+    placeholder: "New task",
+    style: {
+      flex: 1,
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "6px 10px"
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: dueDate,
+    onChange: e => setDueDate(e.target.value),
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "6px 8px"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C1592E",
+      fontSize: "12px"
+    }
+  }, error), /*#__PURE__*/React.createElement("button", {
+    onClick: addTask,
+    disabled: saving || !text.trim(),
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: text.trim() ? "#EDE9E1" : "#5E6268",
+      borderRadius: "3px",
+      fontSize: "12.5px",
+      padding: "6px 14px",
+      cursor: text.trim() ? "pointer" : "default"
+    }
+  }, saving ? "Saving…" : "Add task")));
+}
+function ContactList({
+  itemId,
+  company
+}) {
+  const [contacts, setContacts] = useState(null);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("contacts").select("*").eq("item_id", itemId).order("created_at", {
+        ascending: true
+      });
+      if (!cancelled) setContacts(error ? [] : data);
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+  const addContact = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    setError(null);
+    const {
+      data,
+      error
+    } = await supabaseClient.from("contacts").insert({
+      item_id: itemId,
+      name: name.trim(),
+      role: role.trim() || null,
+      email: email.trim() || null
+    }).select();
+    if (error) {
+      setError("Couldn't save contact. Try again.");
+    } else {
+      setContacts([...(contacts || []), data[0]]);
+      setName("");
+      setRole("");
+      setEmail("");
+    }
+    setSaving(false);
+  };
+  const removeContact = async id => {
+    setContacts(contacts.filter(c => c.id !== id));
+    await supabaseClient.from("contacts").delete().eq("id", id);
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "8px"
+    }
+  }, "Contacts"), contacts === null ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "12.5px"
+    }
+  }, "Loading…") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: "8px",
+      marginBottom: "10px"
+    }
+  }, contacts.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "12.5px"
+    }
+  }, "No additional contacts yet."), contacts.map(c => /*#__PURE__*/React.createElement("div", {
+    key: c.id,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      fontSize: "13px"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#EDE9E1"
+    }
+  }, c.name, c.role ? ` — ${c.role}` : ""), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "10px",
+      marginTop: "2px"
+    }
+  }, /*#__PURE__*/React.createElement("a", {
+    href: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(c.name + " " + (company || ""))}`,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: "#9CC3D4",
+      fontSize: "12px",
+      textDecoration: "none"
+    }
+  }, "LinkedIn"), c.email && /*#__PURE__*/React.createElement("a", {
+    href: `mailto:${c.email}`,
+    style: {
+      color: "#9CC3D4",
+      fontSize: "12px",
+      textDecoration: "none"
+    }
+  }, c.email))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => removeContact(c.id),
+    style: {
+      background: "none",
+      border: "none",
+      color: "#5E6268",
+      cursor: "pointer",
+      fontSize: "12px"
+    }
+  }, "Remove")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: name,
+    onChange: e => setName(e.target.value),
+    placeholder: "Name",
+    style: {
+      flex: "1 1 120px",
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "6px 10px"
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    value: role,
+    onChange: e => setRole(e.target.value),
+    placeholder: "Role",
+    style: {
+      flex: "1 1 100px",
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "6px 10px"
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    value: email,
+    onChange: e => setEmail(e.target.value),
+    placeholder: "Email (optional)",
+    style: {
+      flex: "1 1 140px",
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "6px 10px"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C1592E",
+      fontSize: "12px"
+    }
+  }, error), /*#__PURE__*/React.createElement("button", {
+    onClick: addContact,
+    disabled: saving || !name.trim(),
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: name.trim() ? "#EDE9E1" : "#5E6268",
+      borderRadius: "3px",
+      fontSize: "12.5px",
+      padding: "6px 14px",
+      cursor: name.trim() ? "pointer" : "default"
+    }
+  }, saving ? "Saving…" : "Add contact")));
+}
 function CommentThread({
   itemId,
   commenterName,
@@ -671,16 +1174,6 @@ function CommentThread({
     }
     setSaving(false);
   };
-  const toggleResolved = async comment => {
-    const nextResolved = !comment.resolved;
-    setComments(comments.map(c => c.id === comment.id ? {
-      ...c,
-      resolved: nextResolved
-    } : c));
-    await supabaseClient.from("comments").update({
-      resolved: nextResolved
-    }).eq("id", comment.id);
-  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
@@ -708,24 +1201,7 @@ function CommentThread({
     key: c.id,
     style: {
       fontSize: "13px",
-      lineHeight: 1.5,
-      display: "flex",
-      gap: "8px",
-      alignItems: "flex-start"
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
-    checked: !!c.resolved,
-    onChange: () => toggleResolved(c),
-    style: {
-      marginTop: "3px",
-      cursor: "pointer",
-      flexShrink: 0
-    },
-    title: c.resolved ? "Mark as not done" : "Mark as done"
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      opacity: c.resolved ? 0.5 : 1
+      lineHeight: 1.5
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
@@ -741,10 +1217,9 @@ function CommentThread({
     month: "short"
   })), /*#__PURE__*/React.createElement("div", {
     style: {
-      color: "#C7CAD0",
-      textDecoration: c.resolved ? "line-through" : "none"
+      color: "#C7CAD0"
     }
-  }, c.text))))), /*#__PURE__*/React.createElement("input", {
+  }, c.text)))), /*#__PURE__*/React.createElement("input", {
     value: commenterName,
     onChange: e => setCommenterName(e.target.value),
     placeholder: "Your name",
@@ -1072,6 +1547,23 @@ function Row({
       borderTop: "1px solid #2C3138",
       paddingTop: "16px"
     }
+  }, /*#__PURE__*/React.createElement(ContactList, {
+    itemId: item.id,
+    company: item.company || item.name
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      gridColumn: "1 / -1",
+      borderTop: "1px solid #2C3138",
+      paddingTop: "16px"
+    }
+  }, /*#__PURE__*/React.createElement(TaskList, {
+    itemId: item.id
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      gridColumn: "1 / -1",
+      borderTop: "1px solid #2C3138",
+      paddingTop: "16px"
+    }
   }, /*#__PURE__*/React.createElement(CommentThread, {
     itemId: item.id,
     commenterName: commenterName,
@@ -1108,6 +1600,30 @@ function Dashboard() {
       setGeneratedAt(payload.generatedAt || null);
     }).catch(e => setLoadError(e.message));
   }, []);
+  useEffect(() => {
+    if (!items || !generatedAt) return;
+    async function recordSnapshot() {
+      const dateStr = generatedAt.split("T")[0];
+      const tier1 = items.filter(i => i.tier === "Tier 1").length;
+      const tier2 = items.filter(i => i.tier === "Tier 2").length;
+      const monitor = items.filter(i => i.tier === "Monitor").length;
+      const archive = items.filter(i => i.tier === "Archive").length;
+      const avgScore = items.length ? items.reduce((s, i) => s + i.score, 0) / items.length : 0;
+      await supabaseClient.from("pipeline_snapshots").upsert({
+        snapshot_date: dateStr,
+        tier1_count: tier1,
+        tier2_count: tier2,
+        monitor_count: monitor,
+        archive_count: archive,
+        total_count: items.length,
+        avg_score: avgScore
+      }, {
+        onConflict: "snapshot_date",
+        ignoreDuplicates: true
+      });
+    }
+    recordSnapshot();
+  }, [items, generatedAt]);
   const counts = useCounts(items || []);
   const commodityBreakdown = useCommodityBreakdown(items || []);
   const commodities = useMemo(() => uniqueSorted(items || [], "commodity"), [items]);
@@ -1223,40 +1739,40 @@ function Dashboard() {
       marginBottom: "-13px"
     }
   }, "Pipeline"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setView("review"),
+    onClick: () => setView("focus"),
     style: {
       background: "none",
       border: "none",
       cursor: "pointer",
       padding: 0,
-      color: view === "review" ? "#EDE9E1" : "#71767D",
+      color: view === "focus" ? "#EDE9E1" : "#71767D",
       fontSize: "13px",
       fontWeight: 500,
-      borderBottom: view === "review" ? "2px solid #C1592E" : "2px solid transparent",
+      borderBottom: view === "focus" ? "2px solid #C1592E" : "2px solid transparent",
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Weekly review"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setView("actions"),
+  }, "Week in Focus"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("comments"),
     style: {
       background: "none",
       border: "none",
       cursor: "pointer",
       padding: 0,
-      color: view === "actions" ? "#EDE9E1" : "#71767D",
+      color: view === "comments" ? "#EDE9E1" : "#71767D",
       fontSize: "13px",
       fontWeight: 500,
-      borderBottom: view === "actions" ? "2px solid #C1592E" : "2px solid transparent",
+      borderBottom: view === "comments" ? "2px solid #C1592E" : "2px solid transparent",
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Action items"), /*#__PURE__*/React.createElement("span", {
+  }, "Comments"), /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#4B4E53",
       fontSize: "13px"
     },
     title: "Not yet built"
-  }, "Staging boards")), view === "review" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+  }, "Staging boards")), view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
@@ -1264,9 +1780,10 @@ function Dashboard() {
       color: "#EDE9E1",
       margin: "0 0 28px 0"
     }
-  }, "Weekly review"), /*#__PURE__*/React.createElement(WeeklyReview, {
-    items: items
-  })) : view === "actions" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+  }, "Week in Focus"), /*#__PURE__*/React.createElement(FocusPage, {
+    items: items,
+    onOpenItem: openItemFromActions
+  })) : view === "comments" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
@@ -1274,7 +1791,7 @@ function Dashboard() {
       color: "#EDE9E1",
       margin: "0 0 28px 0"
     }
-  }, "Action items"), /*#__PURE__*/React.createElement(ActionItems, {
+  }, "Comments"), /*#__PURE__*/React.createElement(CommentsLog, {
     items: items,
     onOpenItem: openItemFromActions
   })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
