@@ -150,8 +150,20 @@ function buildLinkedInDraft(item) {
   const context = item.trigger ? ` (${item.trigger.slice(0, 60)})` : "";
   return `${base}${context} and wanted to connect. I work with DBM Vircon on NPI and engineering delivery for mining projects in ${item.state}.`.slice(0, 300);
 }
+const GENERIC_CONTACT_PATTERNS = /\b(team|study|development|manager|group|department|tbd|unknown|n\/a|none|unclear|contact|committee|panel|commission|solutions|enquiries|council|authority|estate|program|programme)\b/i;
+function extractPersonName(contact) {
+  return (contact || "").split("(")[0].trim();
+}
+function isRealPersonName(contact) {
+  const base = extractPersonName(contact);
+  if (!base) return false;
+  if (GENERIC_CONTACT_PATTERNS.test(base)) return false;
+  const words = base.split(/\s+/);
+  if (words.length < 2 || words.length > 4) return false;
+  return true;
+}
 function linkedInSearchUrl(item) {
-  const name = (item.contact || "").trim();
+  const name = isRealPersonName(item.contact) ? extractPersonName(item.contact) : "";
   const company = item.company || item.name;
   const q = name ? `${name} ${company}` : `${company} Project Director OR Study Manager OR General Manager OR Procurement Manager`;
   return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
@@ -696,7 +708,7 @@ function Row({
       textDecoration: "none",
       marginBottom: "12px"
     }
-  }, item.contact ? `Find ${item.contact} on LinkedIn` : "Find contacts on LinkedIn", " ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
+  }, isRealPersonName(item.contact) ? `Find ${extractPersonName(item.contact)} on LinkedIn` : "Find contacts on LinkedIn", " ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
     size: 12
   })), /*#__PURE__*/React.createElement(OutreachDrafter, {
     item: item
