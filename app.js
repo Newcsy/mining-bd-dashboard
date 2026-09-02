@@ -1627,7 +1627,7 @@ function Row({
       fontSize: "11px",
       marginBottom: "4px"
     }
-  }, "Engagement stage"), /*#__PURE__*/React.createElement("select", {
+  }, "Position"), /*#__PURE__*/React.createElement("select", {
     value: item.dbmv || "",
     onClick: e => e.stopPropagation(),
     onChange: e => {
@@ -1870,7 +1870,9 @@ function Dashboard() {
     localStorage.setItem("commenter-name", name);
   };
   useEffect(() => {
-    fetch("./data.json").then(r => {
+    fetch(`./data.json?t=${Date.now()}`, {
+      cache: "no-store"
+    }).then(r => {
       if (!r.ok) throw new Error("Failed to load data");
       return r.json();
     }).then(payload => {
