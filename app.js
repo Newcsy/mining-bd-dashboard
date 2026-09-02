@@ -1443,7 +1443,9 @@ function Row({
   bidStatus,
   onBidStatusChange,
   onTierOverride,
-  onClearTierOverride
+  onClearTierOverride,
+  onFundingChange,
+  onEngagementChange
 }) {
   const style = TIER_STYLE[item.tier] || TIER_STYLE["Monitor"];
   return /*#__PURE__*/React.createElement("div", {
@@ -1595,13 +1597,55 @@ function Row({
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Key contact",
     value: item.contact
-  }), /*#__PURE__*/React.createElement(Detail, {
-    label: "Funding status",
-    value: item.funding
-  }), /*#__PURE__*/React.createElement(Detail, {
-    label: "DBMV position",
-    value: item.dbmv
-  }), /*#__PURE__*/React.createElement(Detail, {
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "4px"
+    }
+  }, "Funding status"), /*#__PURE__*/React.createElement("select", {
+    value: item.funding || "",
+    onClick: e => e.stopPropagation(),
+    onChange: e => {
+      e.stopPropagation();
+      onFundingChange(item.id, e.target.value);
+    },
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "4px 8px"
+    }
+  }, ["", "Funded", "Raising", "Unfunded", "Unclear"].map(f => /*#__PURE__*/React.createElement("option", {
+    key: f,
+    value: f
+  }, f || "—")))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "4px"
+    }
+  }, "Engagement stage"), /*#__PURE__*/React.createElement("select", {
+    value: item.dbmv || "",
+    onClick: e => e.stopPropagation(),
+    onChange: e => {
+      e.stopPropagation();
+      onEngagementChange(item.id, e.target.value);
+    },
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "4px 8px"
+    }
+  }, ["Cold", "Warm", "Active"].map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, s)))), /*#__PURE__*/React.createElement(Detail, {
     label: "Last reviewed",
     value: item.lastReviewed
   }), /*#__PURE__*/React.createElement(Detail, {
@@ -1725,6 +1769,9 @@ function Dashboard() {
     }, {
       onConflict: "item_id"
     });
+    if (status === "Active Bid") {
+      setEngagementStage(itemId, "Active");
+    }
   };
   const [tierOverrideMap, setTierOverrideMap] = useState({});
   useEffect(() => {
@@ -1765,6 +1812,54 @@ function Dashboard() {
       return next;
     });
     await supabaseClient.from("tier_overrides").delete().eq("item_id", itemId);
+  };
+  const [fundingOverrideMap, setFundingOverrideMap] = useState({});
+  const [engagementOverrideMap, setEngagementOverrideMap] = useState({});
+  useEffect(() => {
+    async function loadOverrides() {
+      const [fundingRes, engagementRes] = await Promise.all([supabaseClient.from("funding_status_overrides").select("*"), supabaseClient.from("engagement_overrides").select("*")]);
+      if (!fundingRes.error && fundingRes.data) {
+        const map = {};
+        fundingRes.data.forEach(r => {
+          map[r.item_id] = r.status;
+        });
+        setFundingOverrideMap(map);
+      }
+      if (!engagementRes.error && engagementRes.data) {
+        const map = {};
+        engagementRes.data.forEach(r => {
+          map[r.item_id] = r.stage;
+        });
+        setEngagementOverrideMap(map);
+      }
+    }
+    loadOverrides();
+  }, []);
+  const setFundingStatus = async (itemId, status) => {
+    setFundingOverrideMap(prev => ({
+      ...prev,
+      [itemId]: status
+    }));
+    await supabaseClient.from("funding_status_overrides").upsert({
+      item_id: itemId,
+      status,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "item_id"
+    });
+  };
+  const setEngagementStage = async (itemId, stage) => {
+    setEngagementOverrideMap(prev => ({
+      ...prev,
+      [itemId]: stage
+    }));
+    await supabaseClient.from("engagement_overrides").upsert({
+      item_id: itemId,
+      stage,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "item_id"
+    });
   };
   useEffect(() => {
     const saved = localStorage.getItem("commenter-name");
@@ -1811,9 +1906,13 @@ function Dashboard() {
     return (items || []).map(i => ({
       ...i,
       algoTier: i.tier,
-      tier: tierOverrideMap[i.id] || i.tier
+      tier: tierOverrideMap[i.id] || i.tier,
+      algoFunding: i.funding,
+      funding: fundingOverrideMap[i.id] !== undefined ? fundingOverrideMap[i.id] : i.funding,
+      algoDbmv: i.dbmv,
+      dbmv: engagementOverrideMap[i.id] || i.dbmv
     }));
-  }, [items, tierOverrideMap]);
+  }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap]);
   const counts = useCounts(effectiveItems);
   const commodityBreakdown = useCommodityBreakdown(effectiveItems);
   const commodities = useMemo(() => uniqueSorted(effectiveItems, "commodity"), [effectiveItems]);
@@ -2166,7 +2265,9 @@ function Dashboard() {
       bidStatus: bidStatusMap[item.id],
       onBidStatusChange: setBidStatus,
       onTierOverride: setTierOverride,
-      onClearTierOverride: clearTierOverride
+      onClearTierOverride: clearTierOverride,
+      onFundingChange: setFundingStatus,
+      onEngagementChange: setEngagementStage
     })))));
   }), filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
