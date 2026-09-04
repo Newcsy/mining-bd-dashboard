@@ -1287,6 +1287,79 @@ function ContactList({
     }
   }, saving ? "Saving…" : "Add contact"))));
 }
+function HistoryLog({
+  itemId,
+  onUndo,
+  canEdit
+}) {
+  const [history, setHistory] = useState(null);
+  const load = async () => {
+    const {
+      data,
+      error
+    } = await supabaseClient.from("override_history").select("*").eq("item_id", itemId).order("changed_at", {
+      ascending: false
+    }).limit(10);
+    setHistory(error ? [] : data);
+  };
+  useEffect(() => {
+    load();
+  }, [itemId]);
+  const undo = async entry => {
+    await onUndo(entry.field, entry.old_value);
+    load();
+  };
+  if (history === null) return null;
+  if (history.length === 0) return null;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "8px"
+    }
+  }, "History"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: "6px"
+    }
+  }, history.map(h => /*#__PURE__*/React.createElement("div", {
+    key: h.id,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      fontSize: "12.5px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#8B9198"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C7CAD0"
+    }
+  }, h.field), ": ", h.old_value || "—", " → ", h.new_value || "—", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px"
+    }
+  }, " ", "by ", h.changed_by, ", ", new Date(h.changed_at).toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short"
+  }))), canEdit && /*#__PURE__*/React.createElement("button", {
+    onClick: () => undo(h),
+    style: {
+      background: "none",
+      border: "none",
+      color: "#9CC3D4",
+      cursor: "pointer",
+      fontSize: "12px",
+      flexShrink: 0,
+      marginLeft: "10px"
+    }
+  }, "Undo")))));
+}
 function CommentThread({
   itemId,
   commenterName,
@@ -1561,7 +1634,8 @@ function Row({
   onClearTierOverride,
   onFundingChange,
   onEngagementChange,
-  canEdit
+  canEdit,
+  onUndo
 }) {
   const style = TIER_STYLE[item.tier] || TIER_STYLE["Monitor"];
   return /*#__PURE__*/React.createElement("div", {
@@ -1671,7 +1745,7 @@ function Row({
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
-      onTierOverride(item.id, e.target.value);
+      onTierOverride(item.id, e.target.value, item.algoTier);
     },
     style: {
       background: "#1D2126",
@@ -1728,7 +1802,7 @@ function Row({
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
-      onFundingChange(item.id, e.target.value);
+      onFundingChange(item.id, e.target.value, item.algoFunding);
     },
     style: {
       background: "#1D2126",
@@ -1754,7 +1828,7 @@ function Row({
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
-      onEngagementChange(item.id, e.target.value);
+      onEngagementChange(item.id, e.target.value, item.algoDbmv);
     },
     style: {
       background: "#1D2126",
@@ -1850,6 +1924,16 @@ function Row({
     commenterName: commenterName,
     setCommenterName: setCommenterName,
     canEdit: canEdit
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      gridColumn: "1 / -1",
+      borderTop: "1px solid #2C3138",
+      paddingTop: "16px"
+    }
+  }, /*#__PURE__*/React.createElement(HistoryLog, {
+    itemId: item.id,
+    canEdit: canEdit,
+    onUndo: (field, oldValue) => onUndo(item, field, oldValue)
   }))));
 }
 function Dashboard() {
@@ -1896,7 +1980,17 @@ function Dashboard() {
     }
     loadBidStatus();
   }, []);
+  const logHistory = async (itemId, field, oldValue, newValue) => {
+    await supabaseClient.from("override_history").insert({
+      item_id: itemId,
+      field,
+      old_value: oldValue != null ? String(oldValue) : null,
+      new_value: newValue != null ? String(newValue) : null,
+      changed_by: commenterName || "Anonymous"
+    });
+  };
   const setBidStatus = async (itemId, status) => {
+    const oldValue = bidStatusMap[itemId] || "Unclassified";
     setBidStatusMap(prev => ({
       ...prev,
       [itemId]: status
@@ -1908,6 +2002,7 @@ function Dashboard() {
     }, {
       onConflict: "item_id"
     });
+    logHistory(itemId, "Bid Status", oldValue, status);
     if (status === "Active Bid") {
       setEngagementStage(itemId, "Active");
     }
@@ -1929,7 +2024,8 @@ function Dashboard() {
     }
     loadTierOverrides();
   }, []);
-  const setTierOverride = async (itemId, tier) => {
+  const setTierOverride = async (itemId, tier, algoTier) => {
+    const oldValue = tierOverrideMap[itemId] || algoTier;
     setTierOverrideMap(prev => ({
       ...prev,
       [itemId]: tier
@@ -1941,6 +2037,7 @@ function Dashboard() {
     }, {
       onConflict: "item_id"
     });
+    logHistory(itemId, "Tier", oldValue, tier);
   };
   const clearTierOverride = async itemId => {
     setTierOverrideMap(prev => {
@@ -1974,7 +2071,8 @@ function Dashboard() {
     }
     loadOverrides();
   }, []);
-  const setFundingStatus = async (itemId, status) => {
+  const setFundingStatus = async (itemId, status, algoFunding) => {
+    const oldValue = fundingOverrideMap[itemId] !== undefined ? fundingOverrideMap[itemId] : algoFunding;
     setFundingOverrideMap(prev => ({
       ...prev,
       [itemId]: status
@@ -1986,8 +2084,10 @@ function Dashboard() {
     }, {
       onConflict: "item_id"
     });
+    logHistory(itemId, "Funding Status", oldValue, status);
   };
-  const setEngagementStage = async (itemId, stage) => {
+  const setEngagementStage = async (itemId, stage, algoDbmv) => {
+    const oldValue = engagementOverrideMap[itemId] || algoDbmv;
     setEngagementOverrideMap(prev => ({
       ...prev,
       [itemId]: stage
@@ -1999,6 +2099,7 @@ function Dashboard() {
     }, {
       onConflict: "item_id"
     });
+    logHistory(itemId, "Position", oldValue, stage);
   };
   useEffect(() => {
     const saved = localStorage.getItem("commenter-name");
@@ -2103,6 +2204,9 @@ function Dashboard() {
   const openItemFromActions = itemId => {
     setView("pipeline");
     setOpenId(itemId);
+  };
+  const handleUndo = (item, field, oldValue) => {
+    if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);
   };
   if (loadError) {
     return /*#__PURE__*/React.createElement("div", {
@@ -2418,7 +2522,8 @@ function Dashboard() {
       onClearTierOverride: clearTierOverride,
       onFundingChange: setFundingStatus,
       onEngagementChange: setEngagementStage,
-      canEdit: canEdit
+      canEdit: canEdit,
+      onUndo: handleUndo
     })))));
   }), filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
