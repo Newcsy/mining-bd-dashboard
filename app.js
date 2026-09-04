@@ -1963,6 +1963,23 @@ function Dashboard() {
     return () => listener.subscription.unsubscribe();
   }, []);
   const [bidStatusMap, setBidStatusMap] = useState({});
+  const [commentsIndex, setCommentsIndex] = useState({});
+  useEffect(() => {
+    async function loadAllCommentsForSearch() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("comments").select("item_id, text");
+      if (!error && data) {
+        const idx = {};
+        data.forEach(c => {
+          idx[c.item_id] = (idx[c.item_id] ? idx[c.item_id] + " " : "") + c.text;
+        });
+        setCommentsIndex(idx);
+      }
+    }
+    loadAllCommentsForSearch();
+  }, []);
   const [bidStatusFilter, setBidStatusFilter] = useState("");
   useEffect(() => {
     async function loadBidStatus() {
@@ -2172,12 +2189,12 @@ function Dashboard() {
       if (source && i.source !== source) return false;
       if (bidStatusFilter && (bidStatusMap[i.id] || "Unclassified") !== bidStatusFilter) return false;
       if (q) {
-        const hay = `${i.name} ${i.company}`.toLowerCase();
+        const hay = `${i.name} ${i.company} ${i.notes || ""} ${i.trigger || ""} ${i.pathToWin || ""} ${i.nextAction || ""} ${i.contact || ""} ${commentsIndex[i.id] || ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap]);
+  }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap, commentsIndex]);
   const grouped = useMemo(() => {
     const g = {
       "Tier 1": [],
@@ -2405,7 +2422,7 @@ function Dashboard() {
   }), /*#__PURE__*/React.createElement("input", {
     value: search,
     onChange: e => setSearch(e.target.value),
-    placeholder: "Search project or company",
+    placeholder: "Search project, company, notes, comments...",
     style: {
       width: "100%",
       background: "#1D2126",
