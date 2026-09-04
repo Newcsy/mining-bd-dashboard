@@ -1647,15 +1647,7 @@ function Row({
     }
   }, /*#__PURE__*/React.createElement("div", {
     onClick: onToggle,
-    style: {
-      display: "grid",
-      gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1.4fr) 110px 64px 120px 100px 60px",
-      gap: "14px",
-      alignItems: "center",
-      padding: "13px 18px 13px 15px",
-      cursor: "pointer"
-    },
-    className: "bd-row"
+    className: "bd-row bd-row-grid"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       minWidth: 0
@@ -1680,6 +1672,7 @@ function Row({
       whiteSpace: "nowrap"
     }
   }, item.company || "Company unknown")), /*#__PURE__*/React.createElement("div", {
+    className: "bd-col-hide",
     style: {
       color: "#B7BBC1",
       fontSize: "13px",
@@ -1688,16 +1681,19 @@ function Row({
       whiteSpace: "nowrap"
     }
   }, item.commodity), /*#__PURE__*/React.createElement("div", {
+    className: "bd-col-hide",
     style: {
       color: "#8B9198",
       fontSize: "13px"
     }
   }, item.state), /*#__PURE__*/React.createElement("div", {
+    className: "bd-col-hide",
     style: {
       color: "#8B9198",
       fontSize: "12.5px"
     }
   }, item.stage), /*#__PURE__*/React.createElement("div", {
+    className: "bd-col-hide",
     style: {
       color: "#8B9198",
       fontSize: "12px",
@@ -1705,12 +1701,14 @@ function Row({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, item.source), /*#__PURE__*/React.createElement(BidStatusBadge, {
+  }, item.source), /*#__PURE__*/React.createElement("div", {
+    className: "bd-col-hide"
+  }, /*#__PURE__*/React.createElement(BidStatusBadge, {
     itemId: item.id,
     status: bidStatus,
     onChange: onBidStatusChange,
     disabled: !canEdit
-  }), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "'IBM Plex Mono', monospace",
       color: item.score >= 35 ? "#E9987A" : "#B7BBC1",
@@ -2427,8 +2425,24 @@ function Dashboard() {
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
         .bd-row:hover { background: rgba(255,255,255,0.02); }
         select option { background: #1D2126; }
-        @media (max-width: 720px) {
-          .bd-hide-mobile { display: none !important; }
+
+        .bd-row-grid {
+          display: grid;
+          grid-template-columns: minmax(0,2.2fr) minmax(0,1.4fr) 110px 64px 120px 100px 60px;
+          gap: 14px;
+          align-items: center;
+          padding: 13px 18px 13px 15px;
+          cursor: pointer;
+        }
+
+        @media (max-width: 640px) {
+          .bd-row-grid {
+            grid-template-columns: minmax(0,1fr) 56px;
+            gap: 10px;
+            padding: 12px 14px;
+          }
+          .bd-col-hide { display: none; }
+          .bd-top-nav { flex-wrap: wrap; row-gap: 10px; }
         }
       `), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2436,6 +2450,7 @@ function Dashboard() {
       margin: "0 auto"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "bd-top-nav",
     style: {
       display: "flex",
       gap: "18px",
@@ -2448,7 +2463,8 @@ function Dashboard() {
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: "18px"
+      gap: "18px",
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setView("pipeline"),
