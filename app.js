@@ -2218,6 +2218,88 @@ function Dashboard() {
     setTierFilter(null);
     setBidStatusFilter("");
   };
+  const exportCsv = () => {
+    const columns = [{
+      label: "Project",
+      get: i => i.name
+    }, {
+      label: "Company",
+      get: i => i.company
+    }, {
+      label: "Commodity",
+      get: i => i.commodity
+    }, {
+      label: "State",
+      get: i => i.state
+    }, {
+      label: "Stage",
+      get: i => i.stage
+    }, {
+      label: "Tier",
+      get: i => i.tier
+    }, {
+      label: "Bid Status",
+      get: i => bidStatusMap[i.id] || "Unclassified"
+    }, {
+      label: "Funding Status",
+      get: i => i.funding
+    }, {
+      label: "Position",
+      get: i => i.dbmv
+    }, {
+      label: "BD Score",
+      get: i => i.score
+    }, {
+      label: "BD Rank",
+      get: i => i.rank
+    }, {
+      label: "Source",
+      get: i => i.source
+    }, {
+      label: "Source URL",
+      get: i => i.sourceUrl
+    }, {
+      label: "Key Contact",
+      get: i => i.contact
+    }, {
+      label: "Trigger Event",
+      get: i => i.trigger
+    }, {
+      label: "Path to Win",
+      get: i => i.pathToWin
+    }, {
+      label: "Next Action",
+      get: i => i.nextAction
+    }, {
+      label: "Last Reviewed",
+      get: i => i.lastReviewed
+    }, {
+      label: "Notes",
+      get: i => i.notes
+    }];
+    const escapeCell = value => {
+      const str = value === null || value === undefined ? "" : String(value);
+      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+    const header = columns.map(c => escapeCell(c.label)).join(",");
+    const rows = filtered.map(item => columns.map(c => escapeCell(c.get(item))).join(","));
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const dateStr = new Date().toISOString().split("T")[0];
+    link.download = `mining-bd-pipeline-${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
   const openItemFromActions = itemId => {
     setView("pipeline");
     setOpenId(itemId);
@@ -2473,7 +2555,19 @@ function Dashboard() {
     }
   }, /*#__PURE__*/React.createElement(XIcon, {
     size: 13
-  }), " Clear")), /*#__PURE__*/React.createElement("div", {
+  }), " Clear"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportCsv,
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: "#9A9DA2",
+      borderRadius: "3px",
+      fontSize: "13px",
+      padding: "8px 14px",
+      cursor: "pointer",
+      whiteSpace: "nowrap"
+    }
+  }, "Export CSV")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: "8px",
