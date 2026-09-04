@@ -1634,6 +1634,7 @@ function Row({
   onClearTierOverride,
   onFundingChange,
   onEngagementChange,
+  onStageOverride,
   canEdit,
   onUndo
 }) {
@@ -1768,6 +1769,64 @@ function Row({
     onClick: e => {
       e.stopPropagation();
       onClearTierOverride(item.id);
+    },
+    style: {
+      color: "#9CC3D4",
+      cursor: "pointer"
+    }
+  }, "(reset)")) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11.5px"
+    }
+  }, "from algorithm"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "4px"
+    }
+  }, "Stage"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    list: "stage-suggestions",
+    defaultValue: item.stage,
+    disabled: !canEdit,
+    onClick: e => e.stopPropagation(),
+    onBlur: e => {
+      if (e.target.value.trim() && e.target.value !== item.stage) onStageOverride(item.id, e.target.value.trim(), item.algoStage);
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter") e.target.blur();
+    },
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "4px 8px",
+      opacity: canEdit ? 1 : 0.6,
+      width: "160px"
+    }
+  }), /*#__PURE__*/React.createElement("datalist", {
+    id: "stage-suggestions"
+  }, ["Scoping", "PFS", "DFS", "FEED", "Approvals", "ECI", "Dual ECI", "EPC", "EPCM", "Construction", "Commissioning", "Care and Maintenance", "Development", "Unclear"].map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }))), item.stage !== item.algoStage ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#71767D",
+      fontSize: "11.5px"
+    }
+  }, "overridden — algorithm says ", item.algoStage, " ", /*#__PURE__*/React.createElement("span", {
+    onClick: e => {
+      e.stopPropagation();
+      onStageOverride(item.id, item.algoStage, item.algoStage);
     },
     style: {
       color: "#9CC3D4",
@@ -2068,9 +2127,10 @@ function Dashboard() {
   };
   const [fundingOverrideMap, setFundingOverrideMap] = useState({});
   const [engagementOverrideMap, setEngagementOverrideMap] = useState({});
+  const [stageOverrideMap, setStageOverrideMap] = useState({});
   useEffect(() => {
     async function loadOverrides() {
-      const [fundingRes, engagementRes] = await Promise.all([supabaseClient.from("funding_status_overrides").select("*"), supabaseClient.from("engagement_overrides").select("*")]);
+      const [fundingRes, engagementRes, stageRes] = await Promise.all([supabaseClient.from("funding_status_overrides").select("*"), supabaseClient.from("engagement_overrides").select("*"), supabaseClient.from("stage_overrides").select("*")]);
       if (!fundingRes.error && fundingRes.data) {
         const map = {};
         fundingRes.data.forEach(r => {
@@ -2085,9 +2145,31 @@ function Dashboard() {
         });
         setEngagementOverrideMap(map);
       }
+      if (!stageRes.error && stageRes.data) {
+        const map = {};
+        stageRes.data.forEach(r => {
+          map[r.item_id] = r.stage;
+        });
+        setStageOverrideMap(map);
+      }
     }
     loadOverrides();
   }, []);
+  const setStageOverride = async (itemId, stage, algoStage) => {
+    const oldValue = stageOverrideMap[itemId] !== undefined ? stageOverrideMap[itemId] : algoStage;
+    setStageOverrideMap(prev => ({
+      ...prev,
+      [itemId]: stage
+    }));
+    await supabaseClient.from("stage_overrides").upsert({
+      item_id: itemId,
+      stage,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "item_id"
+    });
+    logHistory(itemId, "Stage", oldValue, stage);
+  };
   const setFundingStatus = async (itemId, status, algoFunding) => {
     const oldValue = fundingOverrideMap[itemId] !== undefined ? fundingOverrideMap[itemId] : algoFunding;
     setFundingOverrideMap(prev => ({
@@ -2169,9 +2251,11 @@ function Dashboard() {
       algoFunding: i.funding,
       funding: fundingOverrideMap[i.id] !== undefined ? fundingOverrideMap[i.id] : i.funding,
       algoDbmv: i.dbmv,
-      dbmv: engagementOverrideMap[i.id] || i.dbmv
+      dbmv: engagementOverrideMap[i.id] || i.dbmv,
+      algoStage: i.stage,
+      stage: stageOverrideMap[i.id] || i.stage
     }));
-  }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap]);
+  }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap, stageOverrideMap]);
   const counts = useCounts(effectiveItems);
   const commodityBreakdown = useCommodityBreakdown(effectiveItems);
   const commodities = useMemo(() => uniqueSorted(effectiveItems, "commodity"), [effectiveItems]);
@@ -2305,7 +2389,7 @@ function Dashboard() {
     setOpenId(itemId);
   };
   const handleUndo = (item, field, oldValue) => {
-    if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);
+    if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);else if (field === "Stage") setStageOverride(item.id, oldValue, item.algoStage);
   };
   if (loadError) {
     return /*#__PURE__*/React.createElement("div", {
@@ -2633,6 +2717,7 @@ function Dashboard() {
       onClearTierOverride: clearTierOverride,
       onFundingChange: setFundingStatus,
       onEngagementChange: setEngagementStage,
+      onStageOverride: setStageOverride,
       canEdit: canEdit,
       onUndo: handleUndo
     })))));
