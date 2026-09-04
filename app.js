@@ -1815,7 +1815,7 @@ function Row({
     }
   }), /*#__PURE__*/React.createElement("datalist", {
     id: "stage-suggestions"
-  }, ["Scoping", "PFS", "DFS", "FEED", "Approvals", "ECI", "Dual ECI", "EPC", "EPCM", "Construction", "Commissioning", "Care and Maintenance", "Development", "Unclear"].map(s => /*#__PURE__*/React.createElement("option", {
+  }, ["Scoping", "PFS", "DFS", "Detailed Design", "FEED", "Approvals", "ECI", "Dual ECI", "EPC", "EPCM", "Construction", "Commissioning", "Care and Maintenance", "Development", "Unclear"].map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
     value: s
   }))), item.stage !== item.algoStage ? /*#__PURE__*/React.createElement("span", {
