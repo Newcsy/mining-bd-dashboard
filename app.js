@@ -694,6 +694,7 @@ function CommentsLog({
     })));
   }));
 }
+const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
 const BID_STATUS_STYLE = {
   "Active Bid": {
     color: "#6B8F6B",
@@ -1603,6 +1604,71 @@ function OutreachDrafter({
     }
   }, copied ? "Copied" : "Copy")));
 }
+function OpportunityTypeControl({
+  item,
+  canEdit,
+  onChange
+}) {
+  const current = item.opportunityTypes || [];
+  const toggle = type => {
+    const next = current.includes(type) ? current.filter(t => t !== type) : [...current, type];
+    onChange(item.id, next, item.algoOpportunityTypes);
+  };
+  const isOverridden = JSON.stringify([...current].sort()) !== JSON.stringify([...(item.algoOpportunityTypes || [])].sort());
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "4px"
+    }
+  }, "Opportunity Type"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      flexWrap: "wrap",
+      marginBottom: "4px"
+    }
+  }, OPPORTUNITY_TYPES.map(type => {
+    const selected = current.includes(type);
+    return /*#__PURE__*/React.createElement("button", {
+      key: type,
+      disabled: !canEdit,
+      onClick: e => {
+        e.stopPropagation();
+        toggle(type);
+      },
+      style: {
+        background: selected ? "rgba(79,124,144,0.15)" : "transparent",
+        border: selected ? "1px solid #4F7C90" : "1px solid #2C3138",
+        color: selected ? "#9CC3D4" : "#71767D",
+        borderRadius: "3px",
+        fontSize: "12px",
+        padding: "4px 10px",
+        cursor: canEdit ? "pointer" : "default",
+        opacity: canEdit ? 1 : 0.6
+      }
+    }, type);
+  })), isOverridden ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#71767D",
+      fontSize: "11.5px"
+    }
+  }, "overridden — algorithm says ", (item.algoOpportunityTypes || []).join(", ") || "None", " ", /*#__PURE__*/React.createElement("span", {
+    onClick: e => {
+      e.stopPropagation();
+      onChange(item.id, item.algoOpportunityTypes || [], item.algoOpportunityTypes);
+    },
+    style: {
+      color: "#9CC3D4",
+      cursor: "pointer"
+    }
+  }, "(reset)")) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11.5px"
+    }
+  }, "from algorithm"));
+}
 function Detail({
   label,
   value
@@ -1635,6 +1701,7 @@ function Row({
   onFundingChange,
   onEngagementChange,
   onStageOverride,
+  onOpportunityTypesChange,
   canEdit,
   onUndo
 }) {
@@ -1835,7 +1902,11 @@ function Row({
       color: "#5E6268",
       fontSize: "11.5px"
     }
-  }, "from algorithm"))), /*#__PURE__*/React.createElement(Detail, {
+  }, "from algorithm"))), /*#__PURE__*/React.createElement(OpportunityTypeControl, {
+    item: item,
+    canEdit: canEdit,
+    onChange: onOpportunityTypesChange
+  }), /*#__PURE__*/React.createElement(Detail, {
     label: "Trigger event",
     value: item.trigger
   }), /*#__PURE__*/React.createElement(Detail, {
@@ -2038,6 +2109,7 @@ function Dashboard() {
     loadAllCommentsForSearch();
   }, []);
   const [bidStatusFilter, setBidStatusFilter] = useState("");
+  const [opportunityTypeFilter, setOpportunityTypeFilter] = useState("");
   useEffect(() => {
     async function loadBidStatus() {
       const {
@@ -2126,9 +2198,10 @@ function Dashboard() {
   const [fundingOverrideMap, setFundingOverrideMap] = useState({});
   const [engagementOverrideMap, setEngagementOverrideMap] = useState({});
   const [stageOverrideMap, setStageOverrideMap] = useState({});
+  const [opportunityTypeOverrideMap, setOpportunityTypeOverrideMap] = useState({});
   useEffect(() => {
     async function loadOverrides() {
-      const [fundingRes, engagementRes, stageRes] = await Promise.all([supabaseClient.from("funding_status_overrides").select("*"), supabaseClient.from("engagement_overrides").select("*"), supabaseClient.from("stage_overrides").select("*")]);
+      const [fundingRes, engagementRes, stageRes, typeRes] = await Promise.all([supabaseClient.from("funding_status_overrides").select("*"), supabaseClient.from("engagement_overrides").select("*"), supabaseClient.from("stage_overrides").select("*"), supabaseClient.from("opportunity_type_overrides").select("*")]);
       if (!fundingRes.error && fundingRes.data) {
         const map = {};
         fundingRes.data.forEach(r => {
@@ -2150,9 +2223,31 @@ function Dashboard() {
         });
         setStageOverrideMap(map);
       }
+      if (!typeRes.error && typeRes.data) {
+        const map = {};
+        typeRes.data.forEach(r => {
+          map[r.item_id] = r.types;
+        });
+        setOpportunityTypeOverrideMap(map);
+      }
     }
     loadOverrides();
   }, []);
+  const setOpportunityTypes = async (itemId, types, algoTypes) => {
+    const oldValue = opportunityTypeOverrideMap[itemId] !== undefined ? opportunityTypeOverrideMap[itemId] : algoTypes;
+    setOpportunityTypeOverrideMap(prev => ({
+      ...prev,
+      [itemId]: types
+    }));
+    await supabaseClient.from("opportunity_type_overrides").upsert({
+      item_id: itemId,
+      types,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "item_id"
+    });
+    logHistory(itemId, "Opportunity Type", (oldValue || []).join(", ") || "None", types.join(", ") || "None");
+  };
   const setStageOverride = async (itemId, stage, algoStage) => {
     const oldValue = stageOverrideMap[itemId] !== undefined ? stageOverrideMap[itemId] : algoStage;
     setStageOverrideMap(prev => ({
@@ -2251,9 +2346,11 @@ function Dashboard() {
       algoDbmv: i.dbmv,
       dbmv: engagementOverrideMap[i.id] || i.dbmv,
       algoStage: i.stage,
-      stage: stageOverrideMap[i.id] || i.stage
+      stage: stageOverrideMap[i.id] || i.stage,
+      algoOpportunityTypes: i.opportunityTypes || [],
+      opportunityTypes: opportunityTypeOverrideMap[i.id] !== undefined ? opportunityTypeOverrideMap[i.id] : i.opportunityTypes || []
     }));
-  }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap, stageOverrideMap]);
+  }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap, stageOverrideMap, opportunityTypeOverrideMap]);
   const counts = useCounts(effectiveItems);
   const commodityBreakdown = useCommodityBreakdown(effectiveItems);
   const commodities = useMemo(() => uniqueSorted(effectiveItems, "commodity"), [effectiveItems]);
@@ -2270,13 +2367,14 @@ function Dashboard() {
       if (stage && i.stage !== stage) return false;
       if (source && i.source !== source) return false;
       if (bidStatusFilter && (bidStatusMap[i.id] || "Unclassified") !== bidStatusFilter) return false;
+      if (opportunityTypeFilter && !(i.opportunityTypes || []).includes(opportunityTypeFilter)) return false;
       if (q) {
         const hay = `${i.name} ${i.company} ${i.notes || ""} ${i.trigger || ""} ${i.pathToWin || ""} ${i.nextAction || ""} ${i.contact || ""} ${commentsIndex[i.id] || ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap, commentsIndex]);
+  }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap, commentsIndex, opportunityTypeFilter]);
   const grouped = useMemo(() => {
     const g = {
       "Tier 1": [],
@@ -2290,7 +2388,7 @@ function Dashboard() {
     Object.values(g).forEach(arr => arr.sort((a, b) => a.rank - b.rank));
     return g;
   }, [filtered]);
-  const anyFilterActive = search || commodity || state || stage || source || tierFilter || bidStatusFilter;
+  const anyFilterActive = search || commodity || state || stage || source || tierFilter || bidStatusFilter || opportunityTypeFilter;
   const clearAll = () => {
     setSearch("");
     setCommodity("");
@@ -2299,6 +2397,7 @@ function Dashboard() {
     setSource("");
     setTierFilter(null);
     setBidStatusFilter("");
+    setOpportunityTypeFilter("");
   };
   const exportCsv = () => {
     const columns = [{
@@ -2319,6 +2418,9 @@ function Dashboard() {
     }, {
       label: "Tier",
       get: i => i.tier
+    }, {
+      label: "Opportunity Type",
+      get: i => (i.opportunityTypes || []).join("; ")
     }, {
       label: "Bid Status",
       get: i => bidStatusMap[i.id] || "Unclassified"
@@ -2387,7 +2489,10 @@ function Dashboard() {
     setOpenId(itemId);
   };
   const handleUndo = (item, field, oldValue) => {
-    if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);else if (field === "Stage") setStageOverride(item.id, oldValue, item.algoStage);
+    if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);else if (field === "Stage") setStageOverride(item.id, oldValue, item.algoStage);else if (field === "Opportunity Type") {
+      const restored = oldValue === "None" || !oldValue ? [] : oldValue.split(", ");
+      setOpportunityTypes(item.id, restored, item.algoOpportunityTypes);
+    }
   };
   if (loadError) {
     return /*#__PURE__*/React.createElement("div", {
@@ -2640,6 +2745,11 @@ function Dashboard() {
     onChange: setBidStatusFilter,
     options: Object.keys(BID_STATUS_STYLE),
     placeholder: "Any bid status"
+  }), /*#__PURE__*/React.createElement(Select, {
+    value: opportunityTypeFilter,
+    onChange: setOpportunityTypeFilter,
+    options: OPPORTUNITY_TYPES,
+    placeholder: "Any opportunity type"
   }), anyFilterActive && /*#__PURE__*/React.createElement("button", {
     onClick: clearAll,
     style: {
@@ -2734,6 +2844,7 @@ function Dashboard() {
       onFundingChange: setFundingStatus,
       onEngagementChange: setEngagementStage,
       onStageOverride: setStageOverride,
+      onOpportunityTypesChange: setOpportunityTypes,
       canEdit: canEdit,
       onUndo: handleUndo
     })))));
