@@ -1,7 +1,8 @@
 const {
   useState,
   useMemo,
-  useEffect
+  useEffect,
+  useRef
 } = React;
 const SUPABASE_URL = "https://bompuuzsjhpspxrhewyz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_WQIm73yEsXh8ecXctPqXXw_APerSrkS";
@@ -613,6 +614,140 @@ function FocusPage({
       lineHeight: 1.6
     }
   }, itemsWithNoTasks, " of ", items.length, " opportunities have no tasks set. Add a task with a due date on an opportunity to have it show up here when it's due."));
+}
+const TIER_MARKER_COLORS = {
+  "Tier 1": "#E9987A",
+  "Tier 2": "#C1592E",
+  "Monitor": "#4F7C90",
+  "Archive": "#5E6268"
+};
+function MapView({
+  items,
+  onOpenItem
+}) {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef([]);
+  const geoItems = useMemo(() => items.filter(i => i.latitude != null && i.longitude != null && !isNaN(i.latitude) && !isNaN(i.longitude)), [items]);
+  useEffect(() => {
+    window.__mapOpenItem = id => onOpenItem(id);
+    return () => {
+      delete window.__mapOpenItem;
+    };
+  }, [onOpenItem]);
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current || !window.L) return;
+    const map = window.L.map(mapRef.current, {
+      zoomControl: true
+    }).setView([-25.5, 122], 5);
+    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      maxZoom: 19
+    }).addTo(map);
+    mapInstanceRef.current = map;
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !window.L) return;
+    markersRef.current.forEach(m => map.removeLayer(m));
+    markersRef.current = [];
+    geoItems.forEach(item => {
+      const color = TIER_MARKER_COLORS[item.tier] || TIER_MARKER_COLORS["Archive"];
+      const approx = !!item.coordinatesApproximate;
+      const marker = window.L.circleMarker([item.latitude, item.longitude], {
+        radius: approx ? 6 : 8,
+        fillColor: color,
+        color: approx ? color : "#14171B",
+        weight: approx ? 1 : 2,
+        opacity: approx ? 0.7 : 1,
+        fillOpacity: approx ? 0.35 : 0.85,
+        dashArray: approx ? "2,2" : null
+      }).addTo(map);
+      const safeName = String(item.name || "").replace(/'/g, "\\'").replace(/"/g, "&quot;");
+      const popupHtml = `
+        <div style="font-family: 'IBM Plex Sans', sans-serif; min-width: 190px;">
+          <div style="font-weight: 600; color: #14171B; margin-bottom: 2px;">${item.name || "Untitled"}</div>
+          <div style="color: #5E6268; font-size: 12px; margin-bottom: 6px;">${item.company || "Company unknown"}</div>
+          <div style="font-size: 12px; color: #14171B; margin-bottom: 8px;">${item.tier} &middot; Score ${item.score} &middot; ${item.commodity}</div>
+          ${approx ? '<div style="font-size: 11px; color: #999; margin-bottom: 8px;">Approximate location (region centroid)</div>' : ""}
+          <button onclick="window.__mapOpenItem && window.__mapOpenItem('${item.id}')" style="background:#14171B;color:#EDE9E1;border:none;border-radius:3px;padding:5px 10px;font-size:12px;cursor:pointer;">Open in Pipeline</button>
+        </div>
+      `;
+      marker.bindPopup(popupHtml);
+      markersRef.current.push(marker);
+    });
+    if (geoItems.length > 0) {
+      const bounds = window.L.latLngBounds(geoItems.map(i => [i.latitude, i.longitude]));
+      map.fitBounds(bounds.pad(0.2));
+    }
+  }, [geoItems]);
+  const preciseCount = geoItems.filter(i => !i.coordinatesApproximate).length;
+  const approxCount = geoItems.length - preciseCount;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: "14px",
+      flexWrap: "wrap",
+      gap: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#8B9198",
+      fontSize: "13px"
+    }
+  }, "Showing ", geoItems.length, " of ", items.length, " opportunities with known coordinates (", preciseCount, " precise, ", approxCount, " approximate)"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "16px",
+      fontSize: "12px",
+      color: "#8B9198",
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "5px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: "10px",
+      height: "10px",
+      borderRadius: "50%",
+      background: "#C1592E",
+      display: "inline-block"
+    }
+  }), " Precise (MINEDEX / EPA)"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "5px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: "10px",
+      height: "10px",
+      borderRadius: "50%",
+      border: "1px dashed #C1592E",
+      display: "inline-block"
+    }
+  }), " Approximate (region centroid)"))), /*#__PURE__*/React.createElement("div", {
+    ref: mapRef,
+    style: {
+      width: "100%",
+      height: "560px",
+      borderRadius: "8px",
+      overflow: "hidden",
+      border: "1px solid #23272D"
+    }
+  }));
 }
 function CommentsLog({
   items,
@@ -2460,6 +2595,12 @@ function Dashboard() {
     }, {
       label: "Notes",
       get: i => i.notes
+    }, {
+      label: "Latitude",
+      get: i => i.latitude
+    }, {
+      label: "Longitude",
+      get: i => i.longitude
     }];
     const escapeCell = value => {
       const str = value === null || value === undefined ? "" : String(value);
@@ -2613,7 +2754,21 @@ function Dashboard() {
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Comments"), /*#__PURE__*/React.createElement("span", {
+  }, "Comments"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("map"),
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      color: view === "map" ? "#EDE9E1" : "#71767D",
+      fontSize: "13px",
+      fontWeight: 500,
+      borderBottom: view === "map" ? "2px solid #C1592E" : "2px solid transparent",
+      paddingBottom: "12px",
+      marginBottom: "-13px"
+    }
+  }, "Map"), /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#4B4E53",
       fontSize: "13px"
@@ -2642,6 +2797,17 @@ function Dashboard() {
       margin: "0 0 28px 0"
     }
   }, "Comments"), /*#__PURE__*/React.createElement(CommentsLog, {
+    items: effectiveItems,
+    onOpenItem: openItemFromActions
+  })) : view === "map" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "28px",
+      color: "#EDE9E1",
+      margin: "0 0 28px 0"
+    }
+  }, "Map"), /*#__PURE__*/React.createElement(MapView, {
     items: effectiveItems,
     onOpenItem: openItemFromActions
   })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
