@@ -139,7 +139,32 @@ function useCommodityBreakdown(items) {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [items]);
 }
+function useStateBreakdown(items) {
+  return useMemo(() => {
+    const counts = {};
+    items.forEach(i => {
+      if (!i.state) return;
+      counts[i.state] = (counts[i.state] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [items]);
+}
+// Every opportunity-type tag currently in use, fixed defaults plus anything
+// a user has typed in as a custom tag — so a custom tag one person adds
+// becomes a real filter/toggle option for everyone else too.
+function useAllOpportunityTypes(items) {
+  return useMemo(() => {
+    const seen = new Set(OPPORTUNITY_TYPES);
+    items.forEach(i => {
+      (i.opportunityTypes || []).forEach(t => {
+        if (t && t.trim()) seen.add(t.trim());
+      });
+    });
+    return Array.from(seen);
+  }, [items]);
+}
 const COMMODITY_COLORS = ["#C1592E", "#B08D57", "#4F7C90", "#6B8F6B", "#8B6BAE", "#71767D"];
+const STATE_COLORS = ["#4F7C90", "#C1592E", "#6B8F6B", "#B08D57", "#8B6BAE", "#71767D", "#D9BE8C", "#9CC3D4"];
 function uniqueSorted(items, key) {
   return Array.from(new Set(items.map(i => i[key]).filter(Boolean))).sort();
 }
@@ -273,9 +298,14 @@ function StrataBar({
 }
 function CommodityStrip({
   breakdown,
-  total
+  total,
+  colors,
+  activeValue,
+  onSelect
 }) {
   const max = breakdown.length ? breakdown[0][1] : 1;
+  const palette = colors || COMMODITY_COLORS;
+  const clickable = typeof onSelect === "function";
   return /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: "22px",
@@ -283,44 +313,55 @@ function CommodityStrip({
       flexWrap: "wrap",
       gap: "18px 28px"
     }
-  }, breakdown.map(([name, count], idx) => /*#__PURE__*/React.createElement("div", {
-    key: name,
-    style: {
-      minWidth: "90px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      marginBottom: "5px"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#9A9DA2",
-      fontSize: "12px"
-    }
-  }, name), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#5E6268",
-      fontSize: "12px",
-      fontFamily: "'IBM Plex Mono', monospace"
-    }
-  }, count)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: "90px",
-      height: "4px",
-      background: "#20242A",
-      borderRadius: "2px",
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: `${count / max * 100}%`,
-      height: "100%",
-      background: COMMODITY_COLORS[idx % COMMODITY_COLORS.length],
-      borderRadius: "2px"
-    }
-  })))));
+  }, breakdown.map(([name, count], idx) => {
+    const active = activeValue === name;
+    return /*#__PURE__*/React.createElement("div", {
+      key: name,
+      onClick: clickable ? () => onSelect(active ? "" : name) : undefined,
+      title: clickable ? `Filter to ${name}` : undefined,
+      style: {
+        minWidth: "90px",
+        cursor: clickable ? "pointer" : "default",
+        padding: clickable ? "4px 6px" : 0,
+        margin: clickable ? "-4px -6px" : 0,
+        borderRadius: "4px",
+        border: active ? "1px solid #C1592E" : "1px solid transparent",
+        background: active ? "rgba(193,89,46,0.08)" : "transparent"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        marginBottom: "5px"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: active ? "#E9987A" : "#9A9DA2",
+        fontSize: "12px"
+      }
+    }, name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#5E6268",
+        fontSize: "12px",
+        fontFamily: "'IBM Plex Mono', monospace"
+      }
+    }, count)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: "90px",
+        height: "4px",
+        background: "#20242A",
+        borderRadius: "2px",
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: `${count / max * 100}%`,
+        height: "100%",
+        background: palette[idx % palette.length],
+        borderRadius: "2px"
+      }
+    })));
+  }));
 }
 function MiniRow({
   item
@@ -1784,12 +1825,24 @@ function OutreachDrafter({
 function OpportunityTypeControl({
   item,
   canEdit,
-  onChange
+  onChange,
+  allTypes
 }) {
+  const [adding, setAdding] = useState(false);
+  const [newTag, setNewTag] = useState("");
   const current = item.opportunityTypes || [];
+  const types = allTypes && allTypes.length ? allTypes : OPPORTUNITY_TYPES;
   const toggle = type => {
     const next = current.includes(type) ? current.filter(t => t !== type) : [...current, type];
     onChange(item.id, next, item.algoOpportunityTypes);
+  };
+  const addCustomTag = () => {
+    const tag = newTag.trim();
+    if (tag && !current.includes(tag)) {
+      onChange(item.id, [...current, tag], item.algoOpportunityTypes);
+    }
+    setNewTag("");
+    setAdding(false);
   };
   const isOverridden = JSON.stringify([...current].sort()) !== JSON.stringify([...(item.algoOpportunityTypes || [])].sort());
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -1803,9 +1856,10 @@ function OpportunityTypeControl({
       display: "flex",
       gap: "6px",
       flexWrap: "wrap",
-      marginBottom: "4px"
+      marginBottom: "4px",
+      alignItems: "center"
     }
-  }, OPPORTUNITY_TYPES.map(type => {
+  }, types.map(type => {
     const selected = current.includes(type);
     return /*#__PURE__*/React.createElement("button", {
       key: type,
@@ -1825,7 +1879,59 @@ function OpportunityTypeControl({
         opacity: canEdit ? 1 : 0.6
       }
     }, type);
-  })), isOverridden ? /*#__PURE__*/React.createElement("span", {
+  }), canEdit && (adding ? /*#__PURE__*/React.createElement("span", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      display: "inline-flex",
+      gap: "4px"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    autoFocus: true,
+    value: newTag,
+    placeholder: "New tag",
+    onChange: e => setNewTag(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") addCustomTag();
+      if (e.key === "Escape") {
+        setNewTag("");
+        setAdding(false);
+      }
+    },
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12px",
+      padding: "3px 8px",
+      width: "110px"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: addCustomTag,
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: "#9CC3D4",
+      borderRadius: "3px",
+      fontSize: "12px",
+      padding: "3px 8px",
+      cursor: "pointer"
+    }
+  }, "Add")) : /*#__PURE__*/React.createElement("button", {
+    onClick: e => {
+      e.stopPropagation();
+      setAdding(true);
+    },
+    style: {
+      background: "transparent",
+      border: "1px dashed #2C3138",
+      color: "#5E6268",
+      borderRadius: "3px",
+      fontSize: "12px",
+      padding: "4px 10px",
+      cursor: "pointer"
+    }
+  }, "+ New tag"))), isOverridden ? /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#71767D",
       fontSize: "11.5px"
@@ -1879,6 +1985,7 @@ function Row({
   onEngagementChange,
   onStageOverride,
   onOpportunityTypesChange,
+  allOpportunityTypes,
   canEdit,
   onUndo
 }) {
@@ -2088,7 +2195,8 @@ function Row({
   }, "from algorithm"))), /*#__PURE__*/React.createElement(OpportunityTypeControl, {
     item: item,
     canEdit: canEdit,
-    onChange: onOpportunityTypesChange
+    onChange: onOpportunityTypesChange,
+    allTypes: allOpportunityTypes
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Trigger event",
     value: item.trigger
@@ -2571,6 +2679,8 @@ function Dashboard() {
   }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap, stageOverrideMap, opportunityTypeOverrideMap]);
   const counts = useCounts(effectiveItems);
   const commodityBreakdown = useCommodityBreakdown(effectiveItems);
+  const stateBreakdown = useStateBreakdown(effectiveItems);
+  const allOpportunityTypes = useAllOpportunityTypes(effectiveItems);
   const commodities = useMemo(() => uniqueSorted(effectiveItems, "commodity"), [effectiveItems]);
   const states = useMemo(() => uniqueSorted(effectiveItems, "state"), [effectiveItems]);
   const stages = useMemo(() => uniqueSorted(effectiveItems, "stage"), [effectiveItems]);
@@ -2934,7 +3044,15 @@ function Dashboard() {
     total: items.length
   }), /*#__PURE__*/React.createElement(CommodityStrip, {
     breakdown: commodityBreakdown,
-    total: items.length
+    total: items.length,
+    activeValue: commodity,
+    onSelect: setCommodity
+  }), /*#__PURE__*/React.createElement(CommodityStrip, {
+    breakdown: stateBreakdown,
+    total: items.length,
+    colors: STATE_COLORS,
+    activeValue: state,
+    onSelect: setState
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -3000,7 +3118,7 @@ function Dashboard() {
   }), /*#__PURE__*/React.createElement(Select, {
     value: opportunityTypeFilter,
     onChange: setOpportunityTypeFilter,
-    options: OPPORTUNITY_TYPES,
+    options: allOpportunityTypes,
     placeholder: "Any opportunity type"
   }), anyFilterActive && /*#__PURE__*/React.createElement("button", {
     onClick: clearAll,
@@ -3120,6 +3238,7 @@ function Dashboard() {
       onEngagementChange: setEngagementStage,
       onStageOverride: setStageOverride,
       onOpportunityTypesChange: setOpportunityTypes,
+      allOpportunityTypes: allOpportunityTypes,
       canEdit: canEdit,
       onUndo: handleUndo
     })))));
