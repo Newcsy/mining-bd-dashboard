@@ -179,6 +179,27 @@ function linkedInSearchUrl(item) {
   const q = name ? `${name} ${company}` : `${company} Project Director OR Study Manager OR General Manager OR Procurement Manager`;
   return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
 }
+function hasUsableContact(item) {
+  return isRealPersonName(item.contact);
+}
+function formatAddedDate(createdAt) {
+  if (!createdAt) return "Added date unknown";
+  const d = new Date(createdAt);
+  if (isNaN(d.getTime())) return "Added date unknown";
+  return `Added ${d.toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  })}`;
+}
+function companyLinkedInSearchUrl(item) {
+  const company = item.company || item.name;
+  return `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(company)}`;
+}
+function companyWebsiteSearchUrl(item) {
+  const company = item.company || item.name;
+  return `https://www.google.com/search?q=${encodeURIComponent(`${company} official website`)}`;
+}
 function StrataBar({
   counts,
   total
@@ -503,7 +524,7 @@ function FocusPage({
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const todayStr = now.toISOString().split("T")[0];
   const in7Str = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const isDeadBid = i => bidStatusMap[i.id] === "Dead Bid";
+  const isDeadBid = i => normalizeBidStatus(bidStatusMap[i.id]) === "Passed";
   const itemsById = {};
   items.forEach(i => {
     itemsById[i.id] = i;
@@ -830,32 +851,53 @@ function CommentsLog({
   }));
 }
 const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
+// Pursuit status: this is the primary way opportunities are grouped on the board.
+// "Needs Review" is the default for anything with no status set yet.
+const STATUS_ORDER = ["Needs Review", "Investigating", "Chasing", "Passed"];
 const BID_STATUS_STYLE = {
-  "Active Bid": {
-    color: "#6B8F6B",
-    label: "Active Bid"
-  },
-  "Dead Bid": {
-    color: "#71767D",
-    label: "Dead Bid"
-  },
-  "Watching": {
-    color: "#4F7C90",
-    label: "Watching"
-  },
-  "Unclassified": {
+  "Needs Review": {
     color: "#4B4E53",
-    label: "Unclassified"
+    bar: "#4B4E53",
+    label: "Needs Review — not yet triaged"
+  },
+  "Investigating": {
+    color: "#4F7C90",
+    bar: "#4F7C90",
+    label: "Investigating — still qualifying"
+  },
+  "Chasing": {
+    color: "#6B8F6B",
+    bar: "#6B8F6B",
+    label: "Chasing — active pursuit"
+  },
+  "Passed": {
+    color: "#71767D",
+    bar: "#71767D",
+    label: "Passed — not pursuing"
   }
 };
+// Legacy values previously stored in Supabase's bid_status table (and any
+// browser tab caching the old labels) map onto the new status names so
+// nothing silently falls back to "unclassified" during/after the rename.
+const LEGACY_STATUS_MAP = {
+  "Active Bid": "Chasing",
+  "Dead Bid": "Passed",
+  "Watching": "Investigating",
+  "Unclassified": "Needs Review"
+};
+function normalizeBidStatus(raw) {
+  if (!raw) return "Needs Review";
+  if (BID_STATUS_STYLE[raw]) return raw;
+  return LEGACY_STATUS_MAP[raw] || "Needs Review";
+}
 function BidStatusBadge({
   itemId,
   status,
   onChange,
   disabled
 }) {
-  const current = status || "Unclassified";
-  const style = BID_STATUS_STYLE[current] || BID_STATUS_STYLE["Unclassified"];
+  const current = normalizeBidStatus(status);
+  const style = BID_STATUS_STYLE[current] || BID_STATUS_STYLE["Needs Review"];
   return /*#__PURE__*/React.createElement("select", {
     value: current,
     disabled: disabled,
@@ -1873,7 +1915,13 @@ function Row({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, item.company || "Company unknown")), /*#__PURE__*/React.createElement("div", {
+  }, item.company || "Company unknown", " · ", formatAddedDate(item.createdAt), !hasUsableContact(item) && /*#__PURE__*/React.createElement("span", {
+    title: "No point of contact on file — see Reach out below",
+    style: {
+      color: "#B08D57",
+      marginLeft: "6px"
+    }
+  }, "● no contact"))), /*#__PURE__*/React.createElement("div", {
     className: "bd-col-hide",
     style: {
       color: "#B7BBC1",
@@ -2139,7 +2187,14 @@ function Row({
       fontSize: "11px",
       marginBottom: "8px"
     }
-  }, "Reach out"), /*#__PURE__*/React.createElement("a", {
+  }, "Reach out"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: "14px",
+      marginBottom: "12px"
+    }
+  }, /*#__PURE__*/React.createElement("a", {
     href: linkedInSearchUrl(item),
     target: "_blank",
     rel: "noopener noreferrer",
@@ -2149,12 +2204,39 @@ function Row({
       display: "inline-flex",
       alignItems: "center",
       gap: "5px",
-      textDecoration: "none",
-      marginBottom: "12px"
+      textDecoration: "none"
     }
   }, isRealPersonName(item.contact) ? `Find ${extractPersonName(item.contact)} on LinkedIn` : "Find contacts on LinkedIn", " ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
     size: 12
-  })), /*#__PURE__*/React.createElement(OutreachDrafter, {
+  })), !hasUsableContact(item) && /*#__PURE__*/React.createElement("a", {
+    href: companyLinkedInSearchUrl(item),
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: "#9CC3D4",
+      fontSize: "12.5px",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "5px",
+      textDecoration: "none"
+    }
+  }, "Company LinkedIn page ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
+    size: 12
+  })), !hasUsableContact(item) && /*#__PURE__*/React.createElement("a", {
+    href: companyWebsiteSearchUrl(item),
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: "#9CC3D4",
+      fontSize: "12.5px",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "5px",
+      textDecoration: "none"
+    }
+  }, "Company website ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
+    size: 12
+  }))), /*#__PURE__*/React.createElement(OutreachDrafter, {
     item: item,
     senderName: commenterName
   })), /*#__PURE__*/React.createElement("div", {
@@ -2244,6 +2326,7 @@ function Dashboard() {
     loadAllCommentsForSearch();
   }, []);
   const [bidStatusFilter, setBidStatusFilter] = useState("");
+  const [sortMode, setSortMode] = useState("score");
   const [opportunityTypeFilter, setOpportunityTypeFilter] = useState("");
   useEffect(() => {
     async function loadBidStatus() {
@@ -2271,7 +2354,7 @@ function Dashboard() {
     });
   };
   const setBidStatus = async (itemId, status) => {
-    const oldValue = bidStatusMap[itemId] || "Unclassified";
+    const oldValue = normalizeBidStatus(bidStatusMap[itemId]);
     setBidStatusMap(prev => ({
       ...prev,
       [itemId]: status
@@ -2284,7 +2367,7 @@ function Dashboard() {
       onConflict: "item_id"
     });
     logHistory(itemId, "Bid Status", oldValue, status);
-    if (status === "Active Bid") {
+    if (status === "Chasing") {
       setEngagementStage(itemId, "Active");
     }
   };
@@ -2501,7 +2584,7 @@ function Dashboard() {
       if (state && i.state !== state) return false;
       if (stage && i.stage !== stage) return false;
       if (source && i.source !== source) return false;
-      if (bidStatusFilter && (bidStatusMap[i.id] || "Unclassified") !== bidStatusFilter) return false;
+      if (bidStatusFilter && normalizeBidStatus(bidStatusMap[i.id]) !== bidStatusFilter) return false;
       if (opportunityTypeFilter && !(i.opportunityTypes || []).includes(opportunityTypeFilter)) return false;
       if (q) {
         const hay = `${i.name} ${i.company} ${i.notes || ""} ${i.trigger || ""} ${i.pathToWin || ""} ${i.nextAction || ""} ${i.contact || ""} ${commentsIndex[i.id] || ""}`.toLowerCase();
@@ -2511,18 +2594,18 @@ function Dashboard() {
     });
   }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap, commentsIndex, opportunityTypeFilter]);
   const grouped = useMemo(() => {
-    const g = {
-      "Tier 1": [],
-      "Tier 2": [],
-      "Monitor": [],
-      "Archive": []
-    };
-    filtered.forEach(i => {
-      if (g[i.tier]) g[i.tier].push(i);
+    const g = {};
+    STATUS_ORDER.forEach(s => {
+      g[s] = [];
     });
-    Object.values(g).forEach(arr => arr.sort((a, b) => a.rank - b.rank));
+    filtered.forEach(i => {
+      const s = normalizeBidStatus(bidStatusMap[i.id]);
+      g[s].push(i);
+    });
+    const comparator = sortMode === "date" ? (a, b) => new Date(b.createdAt) - new Date(a.createdAt) : (a, b) => a.rank - b.rank;
+    Object.values(g).forEach(arr => arr.sort(comparator));
     return g;
-  }, [filtered]);
+  }, [filtered, bidStatusMap, sortMode]);
   const anyFilterActive = search || commodity || state || stage || source || tierFilter || bidStatusFilter || opportunityTypeFilter;
   const clearAll = () => {
     setSearch("");
@@ -2557,8 +2640,11 @@ function Dashboard() {
       label: "Opportunity Type",
       get: i => (i.opportunityTypes || []).join("; ")
     }, {
-      label: "Bid Status",
-      get: i => bidStatusMap[i.id] || "Unclassified"
+      label: "Pursuit Status",
+      get: i => normalizeBidStatus(bidStatusMap[i.id])
+    }, {
+      label: "Added",
+      get: i => i.createdAt
     }, {
       label: "Funding Status",
       get: i => i.funding
@@ -2946,8 +3032,17 @@ function Dashboard() {
   }, "Export CSV")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
+      gap: "16px",
+      marginTop: "14px",
+      flexWrap: "wrap",
+      alignItems: "center",
+      justifyContent: "space-between"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
       gap: "8px",
-      marginTop: "14px"
+      flexWrap: "wrap"
     }
   }, TIER_ORDER.map(tier => /*#__PURE__*/React.createElement(Chip, {
     key: tier,
@@ -2955,14 +3050,28 @@ function Dashboard() {
     onClick: () => setTierFilter(tierFilter === tier ? null : tier)
   }, tier, " (", counts[tier], ")"))), /*#__PURE__*/React.createElement("div", {
     style: {
+      display: "flex",
+      gap: "4px",
+      alignItems: "center",
+      color: "#71767D",
+      fontSize: "12px"
+    }
+  }, "Sort:", /*#__PURE__*/React.createElement(Chip, {
+    active: sortMode === "score",
+    onClick: () => setSortMode("score")
+  }, "BD Score"), /*#__PURE__*/React.createElement(Chip, {
+    active: sortMode === "date",
+    onClick: () => setSortMode("date")
+  }, "Newest added"))), /*#__PURE__*/React.createElement("div", {
+    style: {
       marginTop: "36px"
     }
-  }, TIER_ORDER.map(tier => {
-    const rows = grouped[tier];
+  }, STATUS_ORDER.map(statusKey => {
+    const rows = grouped[statusKey];
     if (!rows.length) return null;
-    const style = TIER_STYLE[tier];
+    const style = BID_STATUS_STYLE[statusKey];
     return /*#__PURE__*/React.createElement("div", {
-      key: tier,
+      key: statusKey,
       style: {
         marginBottom: "34px"
       }
@@ -2978,10 +3087,10 @@ function Dashboard() {
         fontFamily: "'Fraunces', serif",
         fontWeight: 600,
         fontSize: "19px",
-        color: style.text,
+        color: style.color,
         margin: 0
       }
-    }, tier), /*#__PURE__*/React.createElement("span", {
+    }, statusKey), /*#__PURE__*/React.createElement("span", {
       style: {
         color: "#5E6268",
         fontSize: "13px"
