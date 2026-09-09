@@ -3630,13 +3630,7 @@ function Dashboard() {
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Outreach"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "#4B4E53",
-      fontSize: "13px"
-    },
-    title: "Not yet built"
-  }, "Staging boards")), /*#__PURE__*/React.createElement(SignInControl, {
+  }, "Outreach")), /*#__PURE__*/React.createElement(SignInControl, {
     session: session
   })), view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
