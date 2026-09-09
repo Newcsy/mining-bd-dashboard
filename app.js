@@ -943,6 +943,12 @@ function OutreachQueue({
     });
     if (onBidStatusChange) onBidStatusChange(row.item_id, "Passed");
   };
+  const markSent = row => {
+    updateRow(row.id, {
+      status: "connect_sent",
+      connect_sent_at: new Date().toISOString()
+    });
+  };
   const saveDraft = (row, value) => {
     if (value === row.draft_message) return;
     updateRow(row.id, {
@@ -963,8 +969,64 @@ function OutreachQueue({
   }, "Loading…");
   const pendingReview = rows.filter(r => r.status === "pending_review");
   const needsProfile = rows.filter(r => r.status === "needs_profile");
-  const actioned = rows.filter(r => r.status !== "pending_review" && r.status !== "needs_profile");
-  const renderCard = row => /*#__PURE__*/React.createElement("div", {
+  const readyToSend = rows.filter(r => r.status === "ready_to_send");
+  const actioned = rows.filter(r => !["pending_review", "needs_profile", "ready_to_send"].includes(r.status));
+  const cardActions = row => /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "8px",
+      marginTop: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => approve(row),
+    disabled: !canEdit,
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: canEdit ? "#EDE9E1" : "#5E6268",
+      borderRadius: "3px",
+      fontSize: "12.5px",
+      padding: "6px 14px",
+      cursor: canEdit ? "pointer" : "default"
+    }
+  }, "Approve"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => skip(row),
+    disabled: !canEdit,
+    style: {
+      background: "none",
+      border: "none",
+      color: "#5E6268",
+      cursor: canEdit ? "pointer" : "default",
+      fontSize: "12.5px"
+    }
+  }, "Skip"));
+  const sentActions = row => /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: "12px",
+      marginTop: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => markSent(row),
+    disabled: !canEdit,
+    style: {
+      background: "#2E4B3B",
+      border: "1px solid #3F6350",
+      color: canEdit ? "#C9E8D4" : "#5E6268",
+      borderRadius: "3px",
+      fontSize: "12.5px",
+      padding: "6px 14px",
+      cursor: canEdit ? "pointer" : "default"
+    }
+  }, "Mark as sent"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#71767D",
+      fontSize: "11.5px"
+    }
+  }, "Pre-filled in your LinkedIn tab — open it, review, click Send there, then mark it here."));
+  const renderCard = (row, actions) => /*#__PURE__*/React.createElement("div", {
     key: row.id,
     style: {
       border: "1px solid #23272D",
@@ -1061,42 +1123,14 @@ function OutreachQueue({
       marginTop: "6px",
       fontStyle: "italic"
     }
-  }, "Scope relevance not yet checked"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: "8px",
-      marginTop: "10px"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => approve(row),
-    disabled: !canEdit,
-    style: {
-      background: "transparent",
-      border: "1px solid #2C3138",
-      color: canEdit ? "#EDE9E1" : "#5E6268",
-      borderRadius: "3px",
-      fontSize: "12.5px",
-      padding: "6px 14px",
-      cursor: canEdit ? "pointer" : "default"
-    }
-  }, "Approve"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => skip(row),
-    disabled: !canEdit,
-    style: {
-      background: "none",
-      border: "none",
-      color: "#5E6268",
-      cursor: canEdit ? "pointer" : "default",
-      fontSize: "12.5px"
-    }
-  }, "Skip")));
+  }, "Scope relevance not yet checked"), actions(row));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "13px",
       marginBottom: "20px"
     }
-  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile`), pendingReview.length === 0 && needsProfile.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile · ${readyToSend.length} ready to send`), pendingReview.length === 0 && needsProfile.length === 0 && readyToSend.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "13px",
@@ -1114,7 +1148,7 @@ function OutreachQueue({
       color: "#EDE9E1",
       margin: "0 0 12px 0"
     }
-  }, "Ready to review"), pendingReview.map(renderCard)), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Ready to review"), pendingReview.map(row => renderCard(row, cardActions))), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "32px"
     }
@@ -1133,7 +1167,26 @@ function OutreachQueue({
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "These have a named contact but no LinkedIn profile URL yet — profile lookup is a manual/browser step, not automated."), needsProfile.map(renderCard)), actioned.length > 0 && /*#__PURE__*/React.createElement("details", {
+  }, "These have a named contact but no LinkedIn profile URL yet — profile lookup is a manual/browser step, not automated."), needsProfile.map(row => renderCard(row, cardActions))), readyToSend.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "32px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, "Ready to send"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12.5px",
+      fontStyle: "italic",
+      marginBottom: "12px"
+    }
+  }, "Connection note is pre-filled and waiting in your LinkedIn tab. Open it, review, click Send there, then mark it as sent here so the record stays accurate."), readyToSend.map(row => renderCard(row, sentActions))), actioned.length > 0 && /*#__PURE__*/React.createElement("details", {
     style: {
       marginTop: "8px"
     }
