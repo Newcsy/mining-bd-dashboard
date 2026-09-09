@@ -906,6 +906,38 @@ function CommentsLog({
     })));
   }));
 }
+const OUTREACH_PIPELINE_STATUS = {
+  connect_sent: {
+    label: "Connect sent",
+    color: "#8B9BAE",
+    rank: 0
+  },
+  message_sent: {
+    label: "Message sent",
+    color: "#8B9BAE",
+    rank: 0
+  },
+  connected: {
+    label: "Connected",
+    color: "#6B8F6B",
+    rank: 1
+  },
+  replied: {
+    label: "Replied",
+    color: "#4F7C90",
+    rank: 2
+  },
+  meeting_booked: {
+    label: "Meeting booked",
+    color: "#7C9A5B",
+    rank: 3
+  },
+  declined: {
+    label: "Declined",
+    color: "#C1592E",
+    rank: 4
+  }
+};
 function OutreachQueue({
   canEdit,
   onOpenItem,
@@ -949,6 +981,19 @@ function OutreachQueue({
       connect_sent_at: new Date().toISOString()
     });
   };
+  const setPipelineStatus = (row, newStatus) => {
+    const patch = {
+      status: newStatus
+    };
+    if (newStatus === "message_sent" && !row.message_sent_at) patch.message_sent_at = new Date().toISOString();
+    updateRow(row.id, patch);
+  };
+  const saveOutcomeNote = (row, value) => {
+    if (value === (row.last_outcome_note || "")) return;
+    updateRow(row.id, {
+      last_outcome_note: value
+    });
+  };
   const saveDraft = (row, value) => {
     if (value === row.draft_message) return;
     updateRow(row.id, {
@@ -970,7 +1015,8 @@ function OutreachQueue({
   const pendingReview = rows.filter(r => r.status === "pending_review");
   const needsProfile = rows.filter(r => r.status === "needs_profile");
   const readyToSend = rows.filter(r => r.status === "ready_to_send");
-  const actioned = rows.filter(r => !["pending_review", "needs_profile", "ready_to_send"].includes(r.status));
+  const pipeline = rows.filter(r => Object.prototype.hasOwnProperty.call(OUTREACH_PIPELINE_STATUS, r.status)).sort((a, b) => OUTREACH_PIPELINE_STATUS[a.status].rank - OUTREACH_PIPELINE_STATUS[b.status].rank);
+  const actioned = rows.filter(r => !["pending_review", "needs_profile", "ready_to_send"].includes(r.status) && !Object.prototype.hasOwnProperty.call(OUTREACH_PIPELINE_STATUS, r.status));
   const cardActions = row => /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -1026,6 +1072,135 @@ function OutreachQueue({
       fontSize: "11.5px"
     }
   }, "Pre-filled in your LinkedIn tab — open it, review, click Send there, then mark it here."));
+  const renderPipelineCard = row => {
+    const meta = OUTREACH_PIPELINE_STATUS[row.status] || {
+      label: row.status,
+      color: "#71767D"
+    };
+    const sentDate = row.message_sent_at || row.connect_sent_at;
+    return /*#__PURE__*/React.createElement("div", {
+      key: row.id,
+      style: {
+        border: "1px solid #23272D",
+        borderRadius: "4px",
+        background: "#181B20",
+        padding: "14px 16px",
+        marginBottom: "10px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "baseline",
+        flexWrap: "wrap",
+        gap: "6px"
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      onClick: () => onOpenItem(row.item_id),
+      style: {
+        color: "#9CC3D4",
+        cursor: "pointer",
+        fontSize: "14px"
+      }
+    }, row.opportunity_name), row.company && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#71767D",
+        fontSize: "13px"
+      }
+    }, " — ", row.company)), sentDate && /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#71767D",
+        fontSize: "12px"
+      }
+    }, "Sent ", new Date(sentDate).toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short"
+    }))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: "8px",
+        fontSize: "12.5px",
+        color: "#C7CAD0"
+      }
+    }, row.contact_name || "Unnamed contact", row.contact_role ? ` (${row.contact_role})` : "", row.contact_linkedin_url ? /*#__PURE__*/React.createElement("a", {
+      href: row.contact_linkedin_url,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      style: {
+        color: "#9CC3D4",
+        fontSize: "12.5px",
+        marginLeft: "8px",
+        textDecoration: "none"
+      }
+    }, "LinkedIn profile ↗") : null), row.draft_message && /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#8B9198",
+        fontSize: "12px",
+        fontStyle: "italic",
+        marginTop: "8px",
+        borderLeft: "2px solid #2C3138",
+        paddingLeft: "10px"
+      }
+    }, "“", row.draft_message, "”"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: "10px",
+        marginTop: "10px"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        color: meta.color,
+        fontSize: "12px",
+        fontWeight: 600
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: "7px",
+        height: "7px",
+        borderRadius: "50%",
+        background: meta.color,
+        display: "inline-block"
+      }
+    }), meta.label), /*#__PURE__*/React.createElement("select", {
+      value: row.status,
+      disabled: !canEdit,
+      onChange: e => setPipelineStatus(row, e.target.value),
+      style: {
+        background: "#1D2126",
+        border: "1px solid #2C3138",
+        color: "#EDE9E1",
+        borderRadius: "3px",
+        fontSize: "12px",
+        padding: "4px 8px"
+      }
+    }, Object.keys(OUTREACH_PIPELINE_STATUS).map(key => /*#__PURE__*/React.createElement("option", {
+      key: key,
+      value: key
+    }, OUTREACH_PIPELINE_STATUS[key].label)))), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      defaultValue: row.last_outcome_note || "",
+      disabled: !canEdit,
+      placeholder: "Add a note — e.g. replied, wants a call next week",
+      onBlur: e => saveOutcomeNote(row, e.target.value),
+      style: {
+        width: "100%",
+        background: "#1D2126",
+        border: "1px solid #2C3138",
+        borderRadius: "3px",
+        color: "#EDE9E1",
+        fontSize: "12.5px",
+        padding: "7px 10px",
+        marginTop: "10px",
+        boxSizing: "border-box",
+        fontFamily: "inherit",
+        opacity: canEdit ? 1 : 0.6
+      }
+    }));
+  };
   const renderCard = (row, actions) => /*#__PURE__*/React.createElement("div", {
     key: row.id,
     style: {
@@ -1130,7 +1305,7 @@ function OutreachQueue({
       fontSize: "13px",
       marginBottom: "20px"
     }
-  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile · ${readyToSend.length} ready to send`), pendingReview.length === 0 && needsProfile.length === 0 && readyToSend.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile · ${readyToSend.length} ready to send · ${pipeline.length} in pipeline`), pendingReview.length === 0 && needsProfile.length === 0 && readyToSend.length === 0 && pipeline.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "13px",
@@ -1186,7 +1361,26 @@ function OutreachQueue({
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "Connection note is pre-filled and waiting in your LinkedIn tab. Open it, review, click Send there, then mark it as sent here so the record stays accurate."), readyToSend.map(row => renderCard(row, sentActions))), actioned.length > 0 && /*#__PURE__*/React.createElement("details", {
+  }, "Connection note is pre-filled and waiting in your LinkedIn tab. Open it, review, click Send there, then mark it as sent here so the record stays accurate."), readyToSend.map(row => renderCard(row, sentActions))), pipeline.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "32px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, "Pipeline"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12.5px",
+      fontStyle: "italic",
+      marginBottom: "12px"
+    }
+  }, "Everyone you've reached out to. Update the status yourself as things move — LinkedIn doesn't tell us."), pipeline.map(renderPipelineCard)), actioned.length > 0 && /*#__PURE__*/React.createElement("details", {
     style: {
       marginTop: "8px"
     }
