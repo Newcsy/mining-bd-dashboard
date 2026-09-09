@@ -3070,21 +3070,40 @@ function Dashboard() {
   const [bidStatusFilter, setBidStatusFilter] = useState("");
   const [sortMode, setSortMode] = useState("score");
   const [opportunityTypeFilter, setOpportunityTypeFilter] = useState("");
+  const [tierOverrideMap, setTierOverrideMap] = useState({});
+  const [fundingOverrideMap, setFundingOverrideMap] = useState({});
+  const [engagementOverrideMap, setEngagementOverrideMap] = useState({});
+  const [stageOverrideMap, setStageOverrideMap] = useState({});
+  const [opportunityTypeOverrideMap, setOpportunityTypeOverrideMap] = useState({});
   useEffect(() => {
-    async function loadBidStatus() {
+    // One consolidated "overrides" table (item_id, field, value jsonb) backs all six
+    // override kinds below - a single row per (item, field) instead of six separate
+    // tables. Loaded once here and fanned out into the same six maps the rest of this
+    // component already expects, so nothing downstream needs to change.
+    async function loadAllOverrides() {
       const {
         data,
         error
-      } = await supabaseClient.from("bid_status").select("*");
+      } = await supabaseClient.from("overrides").select("*");
       if (!error && data) {
-        const map = {};
+        const bid = {},
+          tier = {},
+          funding = {},
+          engagement = {},
+          stage = {},
+          type = {};
         data.forEach(r => {
-          map[r.item_id] = r.status;
+          if (r.field === "bid_status") bid[r.item_id] = r.value;else if (r.field === "tier") tier[r.item_id] = r.value;else if (r.field === "funding_status") funding[r.item_id] = r.value;else if (r.field === "engagement_stage") engagement[r.item_id] = r.value;else if (r.field === "stage") stage[r.item_id] = r.value;else if (r.field === "opportunity_type") type[r.item_id] = r.value;
         });
-        setBidStatusMap(map);
+        setBidStatusMap(bid);
+        setTierOverrideMap(tier);
+        setFundingOverrideMap(funding);
+        setEngagementOverrideMap(engagement);
+        setStageOverrideMap(stage);
+        setOpportunityTypeOverrideMap(type);
       }
     }
-    loadBidStatus();
+    loadAllOverrides();
   }, []);
   const logHistory = async (itemId, field, oldValue, newValue) => {
     await supabaseClient.from("override_history").insert({
@@ -3095,54 +3114,35 @@ function Dashboard() {
       changed_by: commenterName || "Anonymous"
     });
   };
+  const upsertOverride = async (itemId, field, value) => {
+    await supabaseClient.from("overrides").upsert({
+      item_id: itemId,
+      field,
+      value,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "item_id,field"
+    });
+  };
   const setBidStatus = async (itemId, status) => {
     const oldValue = normalizeBidStatus(bidStatusMap[itemId]);
     setBidStatusMap(prev => ({
       ...prev,
       [itemId]: status
     }));
-    await supabaseClient.from("bid_status").upsert({
-      item_id: itemId,
-      status,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: "item_id"
-    });
+    await upsertOverride(itemId, "bid_status", status);
     logHistory(itemId, "Bid Status", oldValue, status);
     if (status === "Chasing") {
       setEngagementStage(itemId, "Active");
     }
   };
-  const [tierOverrideMap, setTierOverrideMap] = useState({});
-  useEffect(() => {
-    async function loadTierOverrides() {
-      const {
-        data,
-        error
-      } = await supabaseClient.from("tier_overrides").select("*");
-      if (!error && data) {
-        const map = {};
-        data.forEach(r => {
-          map[r.item_id] = r.tier;
-        });
-        setTierOverrideMap(map);
-      }
-    }
-    loadTierOverrides();
-  }, []);
   const setTierOverride = async (itemId, tier, algoTier) => {
     const oldValue = tierOverrideMap[itemId] || algoTier;
     setTierOverrideMap(prev => ({
       ...prev,
       [itemId]: tier
     }));
-    await supabaseClient.from("tier_overrides").upsert({
-      item_id: itemId,
-      tier,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: "item_id"
-    });
+    await upsertOverride(itemId, "tier", tier);
     logHistory(itemId, "Tier", oldValue, tier);
   };
   const clearTierOverride = async itemId => {
@@ -3153,59 +3153,15 @@ function Dashboard() {
       delete next[itemId];
       return next;
     });
-    await supabaseClient.from("tier_overrides").delete().eq("item_id", itemId);
+    await supabaseClient.from("overrides").delete().eq("item_id", itemId).eq("field", "tier");
   };
-  const [fundingOverrideMap, setFundingOverrideMap] = useState({});
-  const [engagementOverrideMap, setEngagementOverrideMap] = useState({});
-  const [stageOverrideMap, setStageOverrideMap] = useState({});
-  const [opportunityTypeOverrideMap, setOpportunityTypeOverrideMap] = useState({});
-  useEffect(() => {
-    async function loadOverrides() {
-      const [fundingRes, engagementRes, stageRes, typeRes] = await Promise.all([supabaseClient.from("funding_status_overrides").select("*"), supabaseClient.from("engagement_overrides").select("*"), supabaseClient.from("stage_overrides").select("*"), supabaseClient.from("opportunity_type_overrides").select("*")]);
-      if (!fundingRes.error && fundingRes.data) {
-        const map = {};
-        fundingRes.data.forEach(r => {
-          map[r.item_id] = r.status;
-        });
-        setFundingOverrideMap(map);
-      }
-      if (!engagementRes.error && engagementRes.data) {
-        const map = {};
-        engagementRes.data.forEach(r => {
-          map[r.item_id] = r.stage;
-        });
-        setEngagementOverrideMap(map);
-      }
-      if (!stageRes.error && stageRes.data) {
-        const map = {};
-        stageRes.data.forEach(r => {
-          map[r.item_id] = r.stage;
-        });
-        setStageOverrideMap(map);
-      }
-      if (!typeRes.error && typeRes.data) {
-        const map = {};
-        typeRes.data.forEach(r => {
-          map[r.item_id] = r.types;
-        });
-        setOpportunityTypeOverrideMap(map);
-      }
-    }
-    loadOverrides();
-  }, []);
   const setOpportunityTypes = async (itemId, types, algoTypes) => {
     const oldValue = opportunityTypeOverrideMap[itemId] !== undefined ? opportunityTypeOverrideMap[itemId] : algoTypes;
     setOpportunityTypeOverrideMap(prev => ({
       ...prev,
       [itemId]: types
     }));
-    await supabaseClient.from("opportunity_type_overrides").upsert({
-      item_id: itemId,
-      types,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: "item_id"
-    });
+    await upsertOverride(itemId, "opportunity_type", types);
     logHistory(itemId, "Opportunity Type", (oldValue || []).join(", ") || "None", types.join(", ") || "None");
   };
   const setStageOverride = async (itemId, stage, algoStage) => {
@@ -3214,13 +3170,7 @@ function Dashboard() {
       ...prev,
       [itemId]: stage
     }));
-    await supabaseClient.from("stage_overrides").upsert({
-      item_id: itemId,
-      stage,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: "item_id"
-    });
+    await upsertOverride(itemId, "stage", stage);
     logHistory(itemId, "Stage", oldValue, stage);
   };
   const setFundingStatus = async (itemId, status, algoFunding) => {
@@ -3229,13 +3179,7 @@ function Dashboard() {
       ...prev,
       [itemId]: status
     }));
-    await supabaseClient.from("funding_status_overrides").upsert({
-      item_id: itemId,
-      status,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: "item_id"
-    });
+    await upsertOverride(itemId, "funding_status", status);
     logHistory(itemId, "Funding Status", oldValue, status);
   };
   const setEngagementStage = async (itemId, stage, algoDbmv) => {
@@ -3244,13 +3188,7 @@ function Dashboard() {
       ...prev,
       [itemId]: stage
     }));
-    await supabaseClient.from("engagement_overrides").upsert({
-      item_id: itemId,
-      stage,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: "item_id"
-    });
+    await upsertOverride(itemId, "engagement_stage", stage);
     logHistory(itemId, "Position", oldValue, stage);
   };
   useEffect(() => {
