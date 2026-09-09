@@ -3210,7 +3210,7 @@ function Dashboard() {
         const {
           data,
           error
-        } = await supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, source, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw").limit(2000);
+        } = await supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw").limit(2000);
         if (error) throw new Error(error.message);
         const mapped = (data || []).map(row => ({
           id: row.item_id,
@@ -3225,7 +3225,11 @@ function Dashboard() {
           opportunityTypes: row.opportunity_types || [],
           score: row.bd_score != null ? Number(row.bd_score) : 0,
           rank: row.bd_rank != null ? Number(row.bd_rank) : null,
-          source: row.source,
+          // Display the true data provenance (MINEDEX, EPA WA, Business News,
+          // Mining.com.au, etc.) rather than which internal ingestion batch
+          // wrote the row (MONDAY_LEGACY / N8N_LIVE_PIPELINE) - that internal
+          // tag isn't meaningful to Greg and was never meant to be user-facing.
+          source: row.source_ref || null,
           sourceUrl: row.source_url,
           createdAt: row.first_seen_at,
           lastReviewed: row.last_reviewed_at,
