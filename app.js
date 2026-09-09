@@ -906,6 +906,242 @@ function CommentsLog({
     })));
   }));
 }
+function OutreachQueue({
+  canEdit,
+  onOpenItem
+}) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("outreach_queue").select("*").order("queued_at", {
+        ascending: false
+      });
+      if (error) setError("Couldn't load the outreach queue.");else setRows(data || []);
+    }
+    load();
+  }, []);
+  const updateRow = async (id, patch) => {
+    setRows(prev => prev ? prev.map(r => r.id === id ? {
+      ...r,
+      ...patch
+    } : r) : prev);
+    await supabaseClient.from("outreach_queue").update(patch).eq("id", id);
+  };
+  const approve = row => updateRow(row.id, {
+    status: "approved",
+    reviewed_at: new Date().toISOString()
+  });
+  const skip = row => updateRow(row.id, {
+    status: "skipped_by_user",
+    reviewed_at: new Date().toISOString()
+  });
+  const saveDraft = (row, value) => {
+    if (value === row.draft_message) return;
+    updateRow(row.id, {
+      draft_message: value
+    });
+  };
+  if (error) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#C1592E",
+      fontSize: "13px"
+    }
+  }, error);
+  if (rows === null) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "13px"
+    }
+  }, "Loading…");
+  const pendingReview = rows.filter(r => r.status === "pending_review");
+  const needsProfile = rows.filter(r => r.status === "needs_profile");
+  const actioned = rows.filter(r => r.status !== "pending_review" && r.status !== "needs_profile");
+  const renderCard = row => /*#__PURE__*/React.createElement("div", {
+    key: row.id,
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      background: "#181B20",
+      padding: "14px 16px",
+      marginBottom: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      flexWrap: "wrap",
+      gap: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    onClick: () => onOpenItem(row.item_id),
+    style: {
+      color: "#9CC3D4",
+      cursor: "pointer",
+      fontSize: "14px"
+    }
+  }, row.opportunity_name), row.company && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px"
+    }
+  }, " — ", row.company)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12px"
+    }
+  }, [row.stage, row.priority_tier].filter(Boolean).join(" · "))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "8px",
+      fontSize: "12.5px",
+      color: "#C7CAD0"
+    }
+  }, row.contact_name || "Unnamed contact", row.contact_role ? ` (${row.contact_role})` : "", row.contact_linkedin_url ? /*#__PURE__*/React.createElement("a", {
+    href: row.contact_linkedin_url,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: "#9CC3D4",
+      fontSize: "12.5px",
+      marginLeft: "8px",
+      textDecoration: "none"
+    }
+  }, "LinkedIn profile ↗") : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "12.5px",
+      marginLeft: "8px"
+    }
+  }, "No LinkedIn profile yet")), /*#__PURE__*/React.createElement("textarea", {
+    defaultValue: row.draft_message || "",
+    disabled: !canEdit,
+    onBlur: e => saveDraft(row, e.target.value),
+    style: {
+      width: "100%",
+      minHeight: "70px",
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "13px",
+      padding: "8px 10px",
+      marginTop: "10px",
+      boxSizing: "border-box",
+      resize: "vertical",
+      fontFamily: "inherit",
+      lineHeight: 1.5,
+      opacity: canEdit ? 1 : 0.6
+    }
+  }), row.classification_reason && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "11.5px",
+      fontStyle: "italic",
+      marginTop: "6px"
+    }
+  }, "Why this is fresh: ", row.classification_reason), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "8px",
+      marginTop: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => approve(row),
+    disabled: !canEdit,
+    style: {
+      background: "transparent",
+      border: "1px solid #2C3138",
+      color: canEdit ? "#EDE9E1" : "#5E6268",
+      borderRadius: "3px",
+      fontSize: "12.5px",
+      padding: "6px 14px",
+      cursor: canEdit ? "pointer" : "default"
+    }
+  }, "Approve"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => skip(row),
+    disabled: !canEdit,
+    style: {
+      background: "none",
+      border: "none",
+      color: "#5E6268",
+      cursor: canEdit ? "pointer" : "default",
+      fontSize: "12.5px"
+    }
+  }, "Skip")));
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px",
+      marginBottom: "20px"
+    }
+  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile`), pendingReview.length === 0 && needsProfile.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "13px",
+      padding: "20px 0"
+    }
+  }, "Nothing queued yet."), pendingReview.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "32px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 12px 0"
+    }
+  }, "Ready to review"), pendingReview.map(renderCard)), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "32px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, "Needs a LinkedIn profile"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12.5px",
+      fontStyle: "italic",
+      marginBottom: "12px"
+    }
+  }, "These have a named contact but no LinkedIn profile URL yet — profile lookup is a manual/browser step, not automated."), needsProfile.map(renderCard)), actioned.length > 0 && /*#__PURE__*/React.createElement("details", {
+    style: {
+      marginTop: "8px"
+    }
+  }, /*#__PURE__*/React.createElement("summary", {
+    style: {
+      color: "#71767D",
+      fontSize: "12.5px",
+      cursor: "pointer"
+    }
+  }, `Already actioned (${actioned.length})`), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "10px",
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      overflow: "hidden"
+    }
+  }, actioned.map((row, idx) => /*#__PURE__*/React.createElement("div", {
+    key: row.id,
+    style: {
+      padding: "8px 14px",
+      borderTop: idx === 0 ? "none" : "1px solid #23272D",
+      fontSize: "12.5px",
+      color: "#8B9198"
+    }
+  }, row.opportunity_name, " · ", row.contact_name || "no contact", " · ", row.status)))));
+}
 const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
 // Pursuit status: this is the primary way opportunities are grouped on the board.
 // "Needs Review" is the default for anything with no status set yet.
@@ -3003,7 +3239,21 @@ function Dashboard() {
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Map"), /*#__PURE__*/React.createElement("span", {
+  }, "Map"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("outreach"),
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      color: view === "outreach" ? "#EDE9E1" : "#71767D",
+      fontSize: "13px",
+      fontWeight: 500,
+      borderBottom: view === "outreach" ? "2px solid #C1592E" : "2px solid transparent",
+      paddingBottom: "12px",
+      marginBottom: "-13px"
+    }
+  }, "Outreach"), /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#4B4E53",
       fontSize: "13px"
@@ -3044,6 +3294,17 @@ function Dashboard() {
     }
   }, "Map"), /*#__PURE__*/React.createElement(MapView, {
     items: effectiveItems,
+    onOpenItem: openItemFromActions
+  })) : view === "outreach" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "28px",
+      color: "#EDE9E1",
+      margin: "0 0 28px 0"
+    }
+  }, "Outreach Queue"), /*#__PURE__*/React.createElement(OutreachQueue, {
+    canEdit: canEdit,
     onOpenItem: openItemFromActions
   })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
