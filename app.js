@@ -938,6 +938,37 @@ const OUTREACH_PIPELINE_STATUS = {
     rank: 4
   }
 };
+const OUTREACH_STATUS_META = {
+  pending_review: {
+    label: "Ready to review",
+    color: "#9CC3D4"
+  },
+  needs_profile: {
+    label: "Needs a profile",
+    color: "#E9987A"
+  },
+  approved: {
+    label: "Approved, not prepared",
+    color: "#C7CAD0"
+  },
+  ready_to_send: {
+    label: "Ready to send",
+    color: "#D8C889"
+  },
+  skipped_by_user: {
+    label: "Skipped",
+    color: "#5E6268"
+  },
+  connect_sent: OUTREACH_PIPELINE_STATUS.connect_sent,
+  message_sent: OUTREACH_PIPELINE_STATUS.message_sent,
+  connected: OUTREACH_PIPELINE_STATUS.connected,
+  replied: OUTREACH_PIPELINE_STATUS.replied,
+  meeting_booked: OUTREACH_PIPELINE_STATUS.meeting_booked,
+  declined: OUTREACH_PIPELINE_STATUS.declined
+};
+function outreachLastActivity(row) {
+  return row.message_sent_at || row.connect_sent_at || row.prepared_at || row.reviewed_at || row.queued_at || null;
+}
 function OutreachQueue({
   canEdit,
   onOpenItem,
@@ -1380,32 +1411,113 @@ function OutreachQueue({
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "Everyone you've reached out to. Update the status yourself as things move — LinkedIn doesn't tell us."), pipeline.map(renderPipelineCard)), actioned.length > 0 && /*#__PURE__*/React.createElement("details", {
+  }, "Everyone you've reached out to. Update the status yourself as things move — LinkedIn doesn't tell us."), pipeline.map(renderPipelineCard)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: "8px"
     }
-  }, /*#__PURE__*/React.createElement("summary", {
+  }, /*#__PURE__*/React.createElement("h2", {
     style: {
-      color: "#71767D",
-      fontSize: "12.5px",
-      cursor: "pointer"
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 12px 0"
     }
-  }, `Already actioned (${actioned.length})`), /*#__PURE__*/React.createElement("div", {
+  }, "All contacts"), /*#__PURE__*/React.createElement("div", {
     style: {
-      marginTop: "10px",
       border: "1px solid #23272D",
       borderRadius: "4px",
-      overflow: "hidden"
+      overflow: "auto"
     }
-  }, actioned.map((row, idx) => /*#__PURE__*/React.createElement("div", {
-    key: row.id,
+  }, /*#__PURE__*/React.createElement("table", {
     style: {
-      padding: "8px 14px",
-      borderTop: idx === 0 ? "none" : "1px solid #23272D",
-      fontSize: "12.5px",
-      color: "#8B9198"
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: "12.5px"
     }
-  }, row.opportunity_name, " · ", row.contact_name || "no contact", " · ", row.status)))));
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, ["Opportunity", "Contact", "Status", "Last activity"].map(h => /*#__PURE__*/React.createElement("th", {
+    key: h,
+    style: {
+      textAlign: "left",
+      padding: "8px 14px",
+      color: "#71767D",
+      fontWeight: 600,
+      fontSize: "11.5px",
+      textTransform: "uppercase",
+      letterSpacing: "0.03em",
+      borderBottom: "1px solid #23272D",
+      background: "#14171B",
+      position: "sticky",
+      top: 0
+    }
+  }, h)))), /*#__PURE__*/React.createElement("tbody", null, [...rows].sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0)).map((row, idx) => {
+    const meta = OUTREACH_STATUS_META[row.status] || {
+      label: row.status,
+      color: "#71767D"
+    };
+    const activity = outreachLastActivity(row);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: row.id,
+      style: {
+        borderTop: idx === 0 ? "none" : "1px solid #23272D"
+      }
+    }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: "8px 14px",
+        color: "#C7CAD0"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      onClick: () => onOpenItem(row.item_id),
+      style: {
+        color: "#9CC3D4",
+        cursor: "pointer"
+      }
+    }, row.opportunity_name), row.company && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#71767D"
+      }
+    }, " — ", row.company)), /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: "8px 14px",
+        color: "#C7CAD0",
+        whiteSpace: "nowrap"
+      }
+    }, row.contact_name || "—", row.contact_role ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#71767D"
+      }
+    }, ` (${row.contact_role})`) : null), /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: "8px 14px",
+        whiteSpace: "nowrap"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        color: meta.color,
+        fontWeight: 600
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: "6px",
+        height: "6px",
+        borderRadius: "50%",
+        background: meta.color,
+        display: "inline-block"
+      }
+    }), meta.label)), /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: "8px 14px",
+        color: "#71767D",
+        whiteSpace: "nowrap"
+      }
+    }, activity ? new Date(activity).toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short"
+    }) : "—"));
+  }))))));
 }
 const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
 // Pursuit status: this is the primary way opportunities are grouped on the board.
