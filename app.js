@@ -3200,15 +3200,51 @@ function Dashboard() {
     localStorage.setItem("commenter-name", name);
   };
   useEffect(() => {
-    fetch(`./data.json?t=${Date.now()}`, {
-      cache: "no-store"
-    }).then(r => {
-      if (!r.ok) throw new Error("Failed to load data");
-      return r.json();
-    }).then(payload => {
-      setItems(payload.items || payload);
-      setGeneratedAt(payload.generatedAt || null);
-    }).catch(e => setLoadError(e.message));
+    // Base item list is read live from Supabase (public.opportunities) rather
+    // than the old twice-daily static data.json snapshot exported from the
+    // Monday board. Monday is now a view-only mirror; nothing here depends on
+    // it, so an item removed from the Monday board no longer makes it
+    // disappear from the dashboard (see brief, 2026-09-10 session).
+    async function loadItems() {
+      try {
+        const {
+          data,
+          error
+        } = await supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, source, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw").limit(2000);
+        if (error) throw new Error(error.message);
+        const mapped = (data || []).map(row => ({
+          id: row.item_id,
+          name: row.name,
+          company: row.company,
+          commodity: row.commodity,
+          state: row.state,
+          stage: row.stage,
+          tier: row.priority_tier,
+          dbmv: row.engagement_stage,
+          funding: row.funding_status,
+          opportunityTypes: row.opportunity_types || [],
+          score: row.bd_score != null ? Number(row.bd_score) : 0,
+          rank: row.bd_rank != null ? Number(row.bd_rank) : null,
+          source: row.source,
+          sourceUrl: row.source_url,
+          createdAt: row.first_seen_at,
+          lastReviewed: row.last_reviewed_at,
+          notes: row.notes_short,
+          latitude: row.latitude != null ? Number(row.latitude) : null,
+          longitude: row.longitude != null ? Number(row.longitude) : null,
+          coordinatesApproximate: !!(row.raw && row.raw.coordinates_approximate),
+          contact: row.raw && row.raw.key_contact || null,
+          trigger: row.raw && row.raw.trigger_event || null,
+          pathToWin: row.raw && row.raw.path_to_win || null,
+          nextAction: row.raw && row.raw.next_action || null
+        }));
+        setItems(mapped);
+        setGeneratedAt(new Date().toISOString());
+      } catch (e) {
+        setLoadError(e.message);
+      }
+    }
+    loadItems();
   }, []);
   useEffect(() => {
     if (!items || !generatedAt) return;
@@ -3431,7 +3467,7 @@ function Dashboard() {
         padding: "60px 20px",
         textAlign: "center"
       }
-    }, "Couldn't load the dashboard data (", loadError, "). Check that data.json is present alongside this page.");
+    }, "Couldn't load the dashboard data (", loadError, "). Check the Supabase connection.");
   }
   if (!items) {
     return /*#__PURE__*/React.createElement("div", {
