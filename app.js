@@ -93,36 +93,42 @@ function XIcon({
     y2: "18"
   }));
 }
-const TIER_ORDER = ["Tier 1", "Tier 2", "Monitor", "Archive"];
+const TIER_ORDER = ["Prime Window", "Live Window", "Late Window", "Closed", "Unscoped"];
 const TIER_STYLE = {
-  "Tier 1": {
+  "Prime Window": {
     bar: "#C1592E",
     text: "#E9987A",
-    label: "Tier 1 — active pursuit"
+    label: "Prime Window — active pursuit"
   },
-  "Tier 2": {
+  "Live Window": {
     bar: "#B08D57",
     text: "#D9BE8C",
-    label: "Tier 2 — warm pipeline"
+    label: "Live Window — warm pipeline"
   },
-  "Monitor": {
+  "Late Window": {
     bar: "#4F7C90",
     text: "#9CC3D4",
-    label: "Monitor — watching"
+    label: "Late Window — watching"
   },
-  "Archive": {
+  "Closed": {
     bar: "#4B4E53",
     text: "#9A9DA2",
-    label: "Archive — closed or stale"
+    label: "Closed — closed or stale"
+  },
+  "Unscoped": {
+    bar: "#7A6F8A",
+    text: "#B8AEC7",
+    label: "Unscoped — not enough info yet"
   }
 };
 function useCounts(items) {
   return useMemo(() => {
     const counts = {
-      "Tier 1": 0,
-      "Tier 2": 0,
-      "Monitor": 0,
-      "Archive": 0
+      "Prime Window": 0,
+      "Live Window": 0,
+      "Late Window": 0,
+      "Closed": 0,
+      "Unscoped": 0
     };
     items.forEach(i => {
       if (counts[i.tier] !== undefined) counts[i.tier] += 1;
@@ -207,15 +213,23 @@ function linkedInSearchUrl(item) {
 function hasUsableContact(item) {
   return isRealPersonName(item.contact);
 }
-function formatAddedDate(createdAt) {
-  if (!createdAt) return "Added date unknown";
-  const d = new Date(createdAt);
-  if (isNaN(d.getTime())) return "Added date unknown";
-  return `Added ${d.toLocaleDateString("en-AU", {
+function formatShortDate(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-AU", {
     day: "numeric",
     month: "short",
     year: "numeric"
-  })}`;
+  });
+}
+function formatAddedDate(createdAt) {
+  const formatted = formatShortDate(createdAt);
+  return formatted ? `Added ${formatted}` : "Added date unknown";
+}
+function formatUpdatedDate(updatedAt) {
+  const formatted = formatShortDate(updatedAt);
+  return formatted ? `Updated ${formatted}` : "Updated date unknown";
 }
 function companyLinkedInSearchUrl(item) {
   const company = item.company || item.name;
@@ -571,8 +585,8 @@ function FocusPage({
     itemsById[i.id] = i;
   });
   const newThisWeek = items.filter(i => new Date(i.createdAt) >= weekAgo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const focus = [...items.filter(i => i.tier === "Tier 1" && !isDeadBid(i)), ...items.filter(i => i.tier === "Tier 2" && i.dbmv === "Cold" && !isDeadBid(i)).sort((a, b) => b.score - a.score).slice(0, 7)];
-  const stale = items.filter(i => (i.tier === "Tier 1" || i.tier === "Tier 2") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo) && !isDeadBid(i)).sort((a, b) => b.score - a.score).slice(0, 12);
+  const focus = items.filter(i => (i.tier === "Prime Window" || i.tier === "Live Window") && !isDeadBid(i)).sort((a, b) => b.chaseScore - a.chaseScore);
+  const stale = items.filter(i => (i.tier === "Prime Window" || i.tier === "Live Window") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo) && !isDeadBid(i)).sort((a, b) => b.score - a.score).slice(0, 12);
   const overdueTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date < todayStr) : [];
   const dueThisWeekTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date >= todayStr && t.due_date <= in7Str) : [];
   const itemsWithNoTasks = tasks ? items.filter(i => !tasks.some(t => t.item_id === i.id)).length : 0;
@@ -657,13 +671,13 @@ function FocusPage({
     items: newThisWeek,
     emptyText: "Nothing new landed this week."
   }), /*#__PURE__*/React.createElement(ReviewSection, {
-    title: "This week's focus",
-    description: "Every Tier 1 opportunity, plus the highest-scoring Tier 2 opportunities where no relationship has started yet.",
+    title: "Best placed to chase now",
+    description: "Prime Window and Live Window opportunities ranked by how recently they were added, whether you've already got a relationship started, and BD score as a tie-break.",
     items: focus,
     emptyText: "No clear focus candidates right now."
   }), /*#__PURE__*/React.createElement(ReviewSection, {
     title: "Needs a second look",
-    description: "Tier 1 and Tier 2 opportunities that haven't been reviewed in 30+ days.",
+    description: "Prime Window and Live Window opportunities that haven't been reviewed in 30+ days.",
     items: stale,
     emptyText: "Everything's been reviewed recently."
   }), tasks !== null && itemsWithNoTasks > 0 && /*#__PURE__*/React.createElement("div", {
@@ -678,10 +692,11 @@ function FocusPage({
   }, itemsWithNoTasks, " of ", items.length, " opportunities have no tasks set. Add a task with a due date on an opportunity to have it show up here when it's due."));
 }
 const TIER_MARKER_COLORS = {
-  "Tier 1": "#E9987A",
-  "Tier 2": "#C1592E",
-  "Monitor": "#4F7C90",
-  "Archive": "#5E6268"
+  "Prime Window": "#E9987A",
+  "Live Window": "#C1592E",
+  "Late Window": "#4F7C90",
+  "Closed": "#5E6268",
+  "Unscoped": "#7A6F8A"
 };
 function MapView({
   items,
@@ -718,7 +733,7 @@ function MapView({
     markersRef.current.forEach(m => map.removeLayer(m));
     markersRef.current = [];
     geoItems.forEach(item => {
-      const color = TIER_MARKER_COLORS[item.tier] || TIER_MARKER_COLORS["Archive"];
+      const color = TIER_MARKER_COLORS[item.tier] || TIER_MARKER_COLORS["Unscoped"];
       const approx = !!item.coordinatesApproximate;
       const marker = window.L.circleMarker([item.latitude, item.longitude], {
         radius: approx ? 6 : 8,
@@ -1989,7 +2004,7 @@ function Row({
   canEdit,
   onUndo
 }) {
-  const style = TIER_STYLE[item.tier] || TIER_STYLE["Monitor"];
+  const style = TIER_STYLE[item.tier] || TIER_STYLE["Unscoped"];
   return /*#__PURE__*/React.createElement("div", {
     style: {
       borderLeft: `3px solid ${style.bar}`,
@@ -2022,7 +2037,7 @@ function Row({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, item.company || "Company unknown", " · ", formatAddedDate(item.createdAt), !hasUsableContact(item) && /*#__PURE__*/React.createElement("span", {
+  }, item.company || "Company unknown", " · ", formatAddedDate(item.createdAt), item.updatedAt ? ` · ${formatUpdatedDate(item.updatedAt)}` : null, !hasUsableContact(item) && /*#__PURE__*/React.createElement("span", {
     title: "No point of contact on file — see Reach out below",
     style: {
       color: "#B08D57",
@@ -2112,7 +2127,7 @@ function Row({
       padding: "4px 8px",
       opacity: canEdit ? 1 : 0.6
     }
-  }, ["Tier 1", "Tier 2", "Monitor", "Archive"].map(t => /*#__PURE__*/React.createElement("option", {
+  }, TIER_ORDER.map(t => /*#__PURE__*/React.createElement("option", {
     key: t,
     value: t
   }, t))), item.tier !== item.algoTier ? /*#__PURE__*/React.createElement("span", {
@@ -2264,6 +2279,12 @@ function Row({
   }, s)))), /*#__PURE__*/React.createElement(Detail, {
     label: "Last reviewed",
     value: item.lastReviewed
+  }), /*#__PURE__*/React.createElement(Detail, {
+    label: "Date added",
+    value: formatShortDate(item.createdAt) || "Unknown"
+  }), /*#__PURE__*/React.createElement(Detail, {
+    label: "Last updated",
+    value: formatShortDate(item.updatedAt) || "Unknown"
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Notes",
     value: item.notes
@@ -2642,17 +2663,22 @@ function Dashboard() {
     if (!items || !generatedAt) return;
     async function recordSnapshot() {
       const dateStr = generatedAt.split("T")[0];
-      const tier1 = items.filter(i => i.tier === "Tier 1").length;
-      const tier2 = items.filter(i => i.tier === "Tier 2").length;
-      const monitor = items.filter(i => i.tier === "Monitor").length;
-      const archive = items.filter(i => i.tier === "Archive").length;
+      const primeWindow = items.filter(i => i.tier === "Prime Window").length;
+      const liveWindow = items.filter(i => i.tier === "Live Window").length;
+      const lateWindow = items.filter(i => i.tier === "Late Window").length;
+      const closed = items.filter(i => i.tier === "Closed").length;
+      const unscoped = items.filter(i => i.tier === "Unscoped").length;
       const avgScore = items.length ? items.reduce((s, i) => s + i.score, 0) / items.length : 0;
+      // pipeline_snapshots keeps its original 4 tier-count columns (its schema is
+      // out of scope for this change), so the 5 new tiers map onto them as closely
+      // as possible: Closed and Unscoped both roll into archive_count since neither
+      // is an open pursuit.
       await supabaseClient.from("pipeline_snapshots").upsert({
         snapshot_date: dateStr,
-        tier1_count: tier1,
-        tier2_count: tier2,
-        monitor_count: monitor,
-        archive_count: archive,
+        tier1_count: primeWindow,
+        tier2_count: liveWindow,
+        monitor_count: lateWindow,
+        archive_count: closed + unscoped,
         total_count: items.length,
         avg_score: avgScore
       }, {
@@ -2663,19 +2689,32 @@ function Dashboard() {
     recordSnapshot();
   }, [items, generatedAt]);
   const effectiveItems = useMemo(() => {
-    return (items || []).map(i => ({
-      ...i,
-      algoTier: i.tier,
-      tier: tierOverrideMap[i.id] || i.tier,
-      algoFunding: i.funding,
-      funding: fundingOverrideMap[i.id] !== undefined ? fundingOverrideMap[i.id] : i.funding,
-      algoDbmv: i.dbmv,
-      dbmv: engagementOverrideMap[i.id] || i.dbmv,
-      algoStage: i.stage,
-      stage: stageOverrideMap[i.id] || i.stage,
-      algoOpportunityTypes: i.opportunityTypes || [],
-      opportunityTypes: opportunityTypeOverrideMap[i.id] !== undefined ? opportunityTypeOverrideMap[i.id] : i.opportunityTypes || []
-    }));
+    const now = Date.now();
+    return (items || []).map(i => {
+      const effectiveDbmv = engagementOverrideMap[i.id] || i.dbmv;
+      // "Best placed to chase now" ranking: newest opportunities score highest
+      // (recencyScore tapers 20 -> 0 over 30 days), a relationship already under
+      // way makes it easier to chase (positionBoost), and BD score is only a
+      // tie-break given it's currently flat for most of the top tier.
+      const daysSinceAdded = i.createdAt ? (now - new Date(i.createdAt).getTime()) / (1000 * 60 * 60 * 24) : Infinity;
+      const recencyScore = Math.max(0, 20 - Math.floor(daysSinceAdded * 20 / 30));
+      const positionBoost = effectiveDbmv === "Active" ? 15 : effectiveDbmv === "Warm" ? 8 : 0;
+      const chaseScore = recencyScore + positionBoost + Math.round((i.score || 0) / 3);
+      return {
+        ...i,
+        algoTier: i.tier,
+        tier: tierOverrideMap[i.id] || i.tier,
+        algoFunding: i.funding,
+        funding: fundingOverrideMap[i.id] !== undefined ? fundingOverrideMap[i.id] : i.funding,
+        algoDbmv: i.dbmv,
+        dbmv: effectiveDbmv,
+        algoStage: i.stage,
+        stage: stageOverrideMap[i.id] || i.stage,
+        algoOpportunityTypes: i.opportunityTypes || [],
+        opportunityTypes: opportunityTypeOverrideMap[i.id] !== undefined ? opportunityTypeOverrideMap[i.id] : i.opportunityTypes || [],
+        chaseScore
+      };
+    });
   }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap, stageOverrideMap, opportunityTypeOverrideMap]);
   const counts = useCounts(effectiveItems);
   const commodityBreakdown = useCommodityBreakdown(effectiveItems);
@@ -2712,7 +2751,7 @@ function Dashboard() {
       const s = normalizeBidStatus(bidStatusMap[i.id]);
       g[s].push(i);
     });
-    const comparator = sortMode === "date" ? (a, b) => new Date(b.createdAt) - new Date(a.createdAt) : (a, b) => a.rank - b.rank;
+    const comparator = sortMode === "date" ? (a, b) => new Date(b.createdAt) - new Date(a.createdAt) : sortMode === "chase" ? (a, b) => b.chaseScore - a.chaseScore : (a, b) => a.rank - b.rank;
     Object.values(g).forEach(arr => arr.sort(comparator));
     return g;
   }, [filtered, bidStatusMap, sortMode]);
@@ -3180,7 +3219,10 @@ function Dashboard() {
   }, "BD Score"), /*#__PURE__*/React.createElement(Chip, {
     active: sortMode === "date",
     onClick: () => setSortMode("date")
-  }, "Newest added"))), /*#__PURE__*/React.createElement("div", {
+  }, "Newest added"), /*#__PURE__*/React.createElement(Chip, {
+    active: sortMode === "chase",
+    onClick: () => setSortMode("chase")
+  }, "Best placed to chase"))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: "36px"
     }
