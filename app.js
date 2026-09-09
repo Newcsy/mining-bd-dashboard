@@ -908,7 +908,8 @@ function CommentsLog({
 }
 function OutreachQueue({
   canEdit,
-  onOpenItem
+  onOpenItem,
+  onBidStatusChange
 }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
@@ -935,10 +936,13 @@ function OutreachQueue({
     status: "approved",
     reviewed_at: new Date().toISOString()
   });
-  const skip = row => updateRow(row.id, {
-    status: "skipped_by_user",
-    reviewed_at: new Date().toISOString()
-  });
+  const skip = row => {
+    updateRow(row.id, {
+      status: "skipped_by_user",
+      reviewed_at: new Date().toISOString()
+    });
+    if (onBidStatusChange) onBidStatusChange(row.item_id, "Passed");
+  };
   const saveDraft = (row, value) => {
     if (value === row.draft_message) return;
     updateRow(row.id, {
@@ -1043,7 +1047,21 @@ function OutreachQueue({
       fontStyle: "italic",
       marginTop: "6px"
     }
-  }, "Why this is fresh: ", row.classification_reason), /*#__PURE__*/React.createElement("div", {
+  }, "Why this is fresh: ", row.classification_reason), row.scope_relevant === false && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#E9987A",
+      fontSize: "11.5px",
+      marginTop: "6px",
+      fontWeight: 600
+    }
+  }, "⚠ Not clearly NPI/Infrastructure scope", row.scope_note ? ` — ${row.scope_note}` : ""), row.scope_relevant == null && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "11.5px",
+      marginTop: "6px",
+      fontStyle: "italic"
+    }
+  }, "Scope relevance not yet checked"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: "8px",
@@ -3305,7 +3323,8 @@ function Dashboard() {
     }
   }, "Outreach Queue"), /*#__PURE__*/React.createElement(OutreachQueue, {
     canEdit: canEdit,
-    onOpenItem: openItemFromActions
+    onOpenItem: openItemFromActions,
+    onBidStatusChange: setBidStatus
   })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
