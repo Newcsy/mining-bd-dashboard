@@ -205,13 +205,16 @@ function isRealPersonName(contact) {
   return true;
 }
 function linkedInSearchUrl(item) {
-  const name = isRealPersonName(item.contact) ? extractPersonName(item.contact) : "";
+  const name = item.outreachContactName || (isRealPersonName(item.contact) ? extractPersonName(item.contact) : "");
   const company = item.company || item.name;
   const q = name ? `${name} ${company}` : `${company} Project Director OR Study Manager OR General Manager OR Procurement Manager`;
   return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
 }
 function hasUsableContact(item) {
-  return isRealPersonName(item.contact);
+  return !!item.outreachContactName || isRealPersonName(item.contact);
+}
+function displayContactName(item) {
+  return item.outreachContactName || item.contact || null;
 }
 function formatShortDate(dateStr) {
   if (!dateStr) return null;
@@ -2656,7 +2659,13 @@ function Row({
       color: "#B08D57",
       marginLeft: "6px"
     }
-  }, "● no contact"))), /*#__PURE__*/React.createElement("div", {
+  }, "● no contact"), hasUsableContact(item) && /*#__PURE__*/React.createElement("span", {
+    title: item.outreachStatus ? (OUTREACH_STATUS_META[item.outreachStatus] || {}).label || item.outreachStatus : `Contact on file: ${displayContactName(item)}`,
+    style: {
+      color: item.outreachStatus ? (OUTREACH_STATUS_META[item.outreachStatus] || {}).color || "#8B9198" : "#6B8F6B",
+      marginLeft: "6px"
+    }
+  }, "● ", item.outreachStatus ? (OUTREACH_STATUS_META[item.outreachStatus] || {}).label || item.outreachStatus : "has contact"))), /*#__PURE__*/React.createElement("div", {
     className: "bd-col-hide",
     style: {
       color: "#B7BBC1",
@@ -2834,10 +2843,44 @@ function Row({
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Path to win",
     value: item.pathToWin
-  }), /*#__PURE__*/React.createElement(Detail, {
-    label: "Key contact",
-    value: item.contact
   }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11px",
+      marginBottom: "4px"
+    }
+  }, "Key contact"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: displayContactName(item) ? "#EDE9E1" : "#5E6268",
+      fontSize: "13px",
+      display: "flex",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: "8px"
+    }
+  }, displayContactName(item) || "—", item.outreachContactRole ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#8B9198",
+      fontSize: "12px"
+    }
+  }, `(${item.outreachContactRole})`) : null, item.outreachLinkedIn && /*#__PURE__*/React.createElement("a", {
+    href: item.outreachLinkedIn,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: "#9CC3D4",
+      fontSize: "12px",
+      textDecoration: "none"
+    }
+  }, "LinkedIn ↗"), item.outreachStatus && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: (OUTREACH_STATUS_META[item.outreachStatus] || {}).color || "#8B9198",
+      fontSize: "11px",
+      border: "1px solid currentColor",
+      borderRadius: "3px",
+      padding: "1px 6px"
+    }
+  }, (OUTREACH_STATUS_META[item.outreachStatus] || {}).label || item.outreachStatus))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "11px",
@@ -2948,7 +2991,7 @@ function Row({
       gap: "5px",
       textDecoration: "none"
     }
-  }, isRealPersonName(item.contact) ? `Find ${extractPersonName(item.contact)} on LinkedIn` : "Find contacts on LinkedIn", " ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
+  }, hasUsableContact(item) ? `Find ${displayContactName(item)} on LinkedIn` : "Find contacts on LinkedIn", " ", /*#__PURE__*/React.createElement(ExternalLinkIcon, {
     size: 12
   })), !hasUsableContact(item) && /*#__PURE__*/React.createElement("a", {
     href: companyLinkedInSearchUrl(item),
@@ -3207,41 +3250,71 @@ function Dashboard() {
     // disappear from the dashboard (see brief, 2026-09-10 session).
     async function loadItems() {
       try {
+        const [oppResult, outreachResult] = await Promise.all([supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw").limit(2000), supabaseClient.from("outreach_queue").select("item_id, contact_name, contact_role, contact_linkedin_url, status, queued_at, prepared_at, connect_sent_at, message_sent_at, reviewed_at")]);
         const {
           data,
           error
-        } = await supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw").limit(2000);
+        } = oppResult;
         if (error) throw new Error(error.message);
-        const mapped = (data || []).map(row => ({
-          id: row.item_id,
-          name: row.name,
-          company: row.company,
-          commodity: row.commodity,
-          state: row.state,
-          stage: row.stage,
-          tier: row.priority_tier,
-          dbmv: row.engagement_stage,
-          funding: row.funding_status,
-          opportunityTypes: row.opportunity_types || [],
-          score: row.bd_score != null ? Number(row.bd_score) : 0,
-          rank: row.bd_rank != null ? Number(row.bd_rank) : null,
-          // Display the true data provenance (MINEDEX, EPA WA, Business News,
-          // Mining.com.au, etc.) rather than which internal ingestion batch
-          // wrote the row (MONDAY_LEGACY / N8N_LIVE_PIPELINE) - that internal
-          // tag isn't meaningful to Greg and was never meant to be user-facing.
-          source: row.source_ref || null,
-          sourceUrl: row.source_url,
-          createdAt: row.first_seen_at,
-          lastReviewed: row.last_reviewed_at,
-          notes: row.notes_short,
-          latitude: row.latitude != null ? Number(row.latitude) : null,
-          longitude: row.longitude != null ? Number(row.longitude) : null,
-          coordinatesApproximate: !!(row.raw && row.raw.coordinates_approximate),
-          contact: row.raw && row.raw.key_contact || null,
-          trigger: row.raw && row.raw.trigger_event || null,
-          pathToWin: row.raw && row.raw.path_to_win || null,
-          nextAction: row.raw && row.raw.next_action || null
-        }));
+        // Best outreach_queue row per opportunity — used as the feedback loop
+        // for "who's the contact" / "have we reached out" (see brief, 2026-09-15
+        // session: this is the current, human-reviewed record, more reliable
+        // than the raw Monday "Key Contact" text field synced into `raw`, which
+        // only updates on the next Monday->Supabase pipeline run). Most-advanced
+        // status wins when a project has more than one queue row (e.g. an old
+        // skipped row plus a newer real one).
+        const OUTREACH_RANK = ["meeting_booked", "replied", "connected", "message_sent", "connect_sent", "ready_to_send", "approved", "needs_profile", "pending_review", "declined", "skipped_by_user"];
+        const outreachByItem = {};
+        if (!outreachResult.error) {
+          for (const row of outreachResult.data || []) {
+            const existing = outreachByItem[row.item_id];
+            if (!existing) {
+              outreachByItem[row.item_id] = row;
+              continue;
+            }
+            const existingRank = OUTREACH_RANK.indexOf(existing.status);
+            const rowRank = OUTREACH_RANK.indexOf(row.status);
+            const existingBetter = existingRank === -1 ? false : rowRank === -1 ? true : existingRank <= rowRank;
+            if (!existingBetter) outreachByItem[row.item_id] = row;
+          }
+        }
+        const mapped = (data || []).map(row => {
+          const outreach = outreachByItem[row.item_id] || null;
+          return {
+            id: row.item_id,
+            name: row.name,
+            company: row.company,
+            commodity: row.commodity,
+            state: row.state,
+            stage: row.stage,
+            tier: row.priority_tier,
+            dbmv: row.engagement_stage,
+            funding: row.funding_status,
+            opportunityTypes: row.opportunity_types || [],
+            score: row.bd_score != null ? Number(row.bd_score) : 0,
+            rank: row.bd_rank != null ? Number(row.bd_rank) : null,
+            // Display the true data provenance (MINEDEX, EPA WA, Business News,
+            // Mining.com.au, etc.) rather than which internal ingestion batch
+            // wrote the row (MONDAY_LEGACY / N8N_LIVE_PIPELINE) - that internal
+            // tag isn't meaningful to Greg and was never meant to be user-facing.
+            source: row.source_ref || null,
+            sourceUrl: row.source_url,
+            createdAt: row.first_seen_at,
+            lastReviewed: row.last_reviewed_at,
+            notes: row.notes_short,
+            latitude: row.latitude != null ? Number(row.latitude) : null,
+            longitude: row.longitude != null ? Number(row.longitude) : null,
+            coordinatesApproximate: !!(row.raw && row.raw.coordinates_approximate),
+            contact: row.raw && row.raw.key_contact || null,
+            trigger: row.raw && row.raw.trigger_event || null,
+            pathToWin: row.raw && row.raw.path_to_win || null,
+            nextAction: row.raw && row.raw.next_action || null,
+            outreachContactName: outreach ? outreach.contact_name : null,
+            outreachContactRole: outreach ? outreach.contact_role : null,
+            outreachLinkedIn: outreach ? outreach.contact_linkedin_url : null,
+            outreachStatus: outreach ? outreach.status : null
+          };
+        });
         setItems(mapped);
         setGeneratedAt(new Date().toISOString());
       } catch (e) {
