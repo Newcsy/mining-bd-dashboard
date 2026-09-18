@@ -972,6 +972,120 @@ const OUTREACH_STATUS_META = {
 function outreachLastActivity(row) {
   return row.message_sent_at || row.connect_sent_at || row.prepared_at || row.reviewed_at || row.queued_at || null;
 }
+// Lead warmth (2026-09-18, per Greg): a simple, always-visible temperature
+// reading on a contact, separate from the granular outreach_queue status
+// above. Cold and Luke Warm are derived automatically from the LinkedIn
+// signal already on file (see deriveWarmth below); Warm ("talking in
+// person") and Hot ("bidding/tendering") describe real-world engagement
+// this system has no way to observe on its own, so those two are always a
+// manual call, set from the dropdown in the main pipeline row. A manual
+// pick at any level is stored as an override (overrides table, field
+// "lead_warmth") and always wins over the computed default, the same
+// pattern already used for Tier/Funding/Stage/Position below.
+const WARMTH_ORDER = ["cold", "luke_warm", "warm", "hot"];
+const WARMTH_META = {
+  cold: {
+    label: "Cold",
+    color: "#5E6268",
+    description: "Cold — no contact yet"
+  },
+  luke_warm: {
+    label: "Luke warm",
+    color: "#7A93B0",
+    description: "Luke warm — LinkedIn request accepted"
+  },
+  warm: {
+    label: "Warm",
+    color: "#D8A657",
+    description: "Warm — talking in person"
+  },
+  hot: {
+    label: "Hot",
+    color: "#C1592E",
+    description: "Hot — bidding / tendering"
+  }
+};
+// Outreach statuses that count as an accepted LinkedIn connection - the
+// automatic floor for "Luke warm". Everything before this (sent, pending,
+// not yet contacted) reads as Cold until a person confirms the next step.
+const WARMTH_LUKE_WARM_STATUSES = ["connected", "replied", "meeting_booked"];
+function deriveWarmth(item) {
+  return WARMTH_LUKE_WARM_STATUSES.includes(item.outreachStatus) ? "luke_warm" : "cold";
+}
+function outreachBadgeMeta(item) {
+  if (item.outreachStatus && OUTREACH_STATUS_META[item.outreachStatus]) {
+    return OUTREACH_STATUS_META[item.outreachStatus];
+  }
+  if (hasUsableContact(item)) {
+    return {
+      label: "Contact on file",
+      color: "#6B8F6B"
+    };
+  }
+  return {
+    label: "No contact",
+    color: "#5E6268"
+  };
+}
+function OutreachStatusChip({
+  item
+}) {
+  const meta = outreachBadgeMeta(item);
+  return /*#__PURE__*/React.createElement("span", {
+    title: hasUsableContact(item) ? `Contact on file: ${displayContactName(item)}` : "No point of contact on file — see Reach out",
+    style: {
+      display: "inline-block",
+      maxWidth: "100%",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+      border: `1px solid ${meta.color}`,
+      color: meta.color,
+      fontSize: "10.5px",
+      borderRadius: "3px",
+      padding: "2px 6px",
+      fontFamily: "'IBM Plex Sans', sans-serif"
+    }
+  }, meta.label);
+}
+function WarmthBadge({
+  itemId,
+  warmth,
+  algoWarmth,
+  onChange,
+  disabled
+}) {
+  const meta = WARMTH_META[warmth] || WARMTH_META.cold;
+  return /*#__PURE__*/React.createElement("select", {
+    value: warmth,
+    disabled: disabled,
+    title: meta.description,
+    onClick: e => e.stopPropagation(),
+    onChange: e => {
+      e.stopPropagation();
+      onChange(itemId, e.target.value, algoWarmth);
+    },
+    style: {
+      appearance: "none",
+      background: "transparent",
+      border: `1px solid ${meta.color}`,
+      color: meta.color,
+      fontSize: "11px",
+      borderRadius: "3px",
+      padding: "2px 6px",
+      cursor: disabled ? "default" : "pointer",
+      fontFamily: "'IBM Plex Sans', sans-serif",
+      opacity: disabled ? 0.6 : 1
+    }
+  }, WARMTH_ORDER.map(w => /*#__PURE__*/React.createElement("option", {
+    key: w,
+    value: w,
+    style: {
+      background: "#1D2126",
+      color: "#EDE9E1"
+    }
+  }, WARMTH_META[w].label)));
+}
 function OutreachQueue({
   canEdit,
   onOpenItem,
@@ -2658,6 +2772,7 @@ function Row({
   onStageOverride,
   onOpportunityTypesChange,
   allOpportunityTypes,
+  onWarmthChange,
   canEdit,
   onUndo
 }) {
@@ -2694,19 +2809,7 @@ function Row({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, item.company || "Company unknown", " · ", formatAddedDate(item.createdAt), item.updatedAt ? ` · ${formatUpdatedDate(item.updatedAt)}` : null, !hasUsableContact(item) && /*#__PURE__*/React.createElement("span", {
-    title: "No point of contact on file — see Reach out below",
-    style: {
-      color: "#B08D57",
-      marginLeft: "6px"
-    }
-  }, "● no contact"), hasUsableContact(item) && /*#__PURE__*/React.createElement("span", {
-    title: item.outreachStatus ? (OUTREACH_STATUS_META[item.outreachStatus] || {}).label || item.outreachStatus : `Contact on file: ${displayContactName(item)}`,
-    style: {
-      color: item.outreachStatus ? (OUTREACH_STATUS_META[item.outreachStatus] || {}).color || "#8B9198" : "#6B8F6B",
-      marginLeft: "6px"
-    }
-  }, "● ", item.outreachStatus ? (OUTREACH_STATUS_META[item.outreachStatus] || {}).label || item.outreachStatus : "has contact"))), /*#__PURE__*/React.createElement("div", {
+  }, item.company || "Company unknown", " · ", formatAddedDate(item.createdAt), item.updatedAt ? ` · ${formatUpdatedDate(item.updatedAt)}` : null)), /*#__PURE__*/React.createElement("div", {
     className: "bd-col-hide",
     style: {
       color: "#B7BBC1",
@@ -2737,6 +2840,21 @@ function Row({
       whiteSpace: "nowrap"
     }
   }, item.source), /*#__PURE__*/React.createElement("div", {
+    className: "bd-col-hide",
+    style: {
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(OutreachStatusChip, {
+    item: item
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "bd-col-hide"
+  }, /*#__PURE__*/React.createElement(WarmthBadge, {
+    itemId: item.id,
+    warmth: item.warmth,
+    algoWarmth: item.algoWarmth,
+    onChange: onWarmthChange,
+    disabled: !canEdit
+  })), /*#__PURE__*/React.createElement("div", {
     className: "bd-col-hide"
   }, /*#__PURE__*/React.createElement(BidStatusBadge, {
     itemId: item.id,
@@ -3152,6 +3270,7 @@ function Dashboard() {
     loadAllCommentsForSearch();
   }, []);
   const [bidStatusFilter, setBidStatusFilter] = useState("");
+  const [warmthFilter, setWarmthFilter] = useState("");
   const [sortMode, setSortMode] = useState("score");
   const [opportunityTypeFilter, setOpportunityTypeFilter] = useState("");
   const [tierOverrideMap, setTierOverrideMap] = useState({});
@@ -3159,10 +3278,11 @@ function Dashboard() {
   const [engagementOverrideMap, setEngagementOverrideMap] = useState({});
   const [stageOverrideMap, setStageOverrideMap] = useState({});
   const [opportunityTypeOverrideMap, setOpportunityTypeOverrideMap] = useState({});
+  const [warmthOverrideMap, setWarmthOverrideMap] = useState({});
   useEffect(() => {
-    // One consolidated "overrides" table (item_id, field, value jsonb) backs all six
-    // override kinds below - a single row per (item, field) instead of six separate
-    // tables. Loaded once here and fanned out into the same six maps the rest of this
+    // One consolidated "overrides" table (item_id, field, value jsonb) backs all seven
+    // override kinds below - a single row per (item, field) instead of seven separate
+    // tables. Loaded once here and fanned out into the same seven maps the rest of this
     // component already expects, so nothing downstream needs to change.
     async function loadAllOverrides() {
       const {
@@ -3175,9 +3295,10 @@ function Dashboard() {
           funding = {},
           engagement = {},
           stage = {},
-          type = {};
+          type = {},
+          warmth = {};
         data.forEach(r => {
-          if (r.field === "bid_status") bid[r.item_id] = r.value;else if (r.field === "tier") tier[r.item_id] = r.value;else if (r.field === "funding_status") funding[r.item_id] = r.value;else if (r.field === "engagement_stage") engagement[r.item_id] = r.value;else if (r.field === "stage") stage[r.item_id] = r.value;else if (r.field === "opportunity_type") type[r.item_id] = r.value;
+          if (r.field === "bid_status") bid[r.item_id] = r.value;else if (r.field === "tier") tier[r.item_id] = r.value;else if (r.field === "funding_status") funding[r.item_id] = r.value;else if (r.field === "engagement_stage") engagement[r.item_id] = r.value;else if (r.field === "stage") stage[r.item_id] = r.value;else if (r.field === "opportunity_type") type[r.item_id] = r.value;else if (r.field === "lead_warmth") warmth[r.item_id] = r.value;
         });
         setBidStatusMap(bid);
         setTierOverrideMap(tier);
@@ -3185,6 +3306,7 @@ function Dashboard() {
         setEngagementOverrideMap(engagement);
         setStageOverrideMap(stage);
         setOpportunityTypeOverrideMap(type);
+        setWarmthOverrideMap(warmth);
       }
     }
     loadAllOverrides();
@@ -3274,6 +3396,15 @@ function Dashboard() {
     }));
     await upsertOverride(itemId, "engagement_stage", stage);
     logHistory(itemId, "Position", oldValue, stage);
+  };
+  const setWarmthOverride = async (itemId, warmth, algoWarmth) => {
+    const oldValue = warmthOverrideMap[itemId] || algoWarmth;
+    setWarmthOverrideMap(prev => ({
+      ...prev,
+      [itemId]: warmth
+    }));
+    await upsertOverride(itemId, "lead_warmth", warmth);
+    logHistory(itemId, "Lead Warmth", oldValue, warmth);
   };
   useEffect(() => {
     const saved = localStorage.getItem("commenter-name");
@@ -3414,6 +3545,7 @@ function Dashboard() {
       const npiSub = { High: 20, Medium: 10, Low: 0 }[i.npiPotential] ?? 5;
       const accessSub = { High: 10, Medium: 5, Low: 0 }[i.ownerAccessibility] ?? 3;
       const chaseScore = (npiSub + accessSub) * 1000 + (i.score || 0);
+      const algoWarmth = deriveWarmth(i);
       return {
         ...i,
         algoTier: i.tier,
@@ -3426,10 +3558,12 @@ function Dashboard() {
         stage: stageOverrideMap[i.id] || i.stage,
         algoOpportunityTypes: i.opportunityTypes || [],
         opportunityTypes: opportunityTypeOverrideMap[i.id] !== undefined ? opportunityTypeOverrideMap[i.id] : i.opportunityTypes || [],
+        algoWarmth,
+        warmth: warmthOverrideMap[i.id] || algoWarmth,
         chaseScore
       };
     });
-  }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap, stageOverrideMap, opportunityTypeOverrideMap]);
+  }, [items, tierOverrideMap, fundingOverrideMap, engagementOverrideMap, stageOverrideMap, opportunityTypeOverrideMap, warmthOverrideMap]);
   const counts = useCounts(effectiveItems);
   const commodityBreakdown = useCommodityBreakdown(effectiveItems);
   const stateBreakdown = useStateBreakdown(effectiveItems);
@@ -3449,13 +3583,14 @@ function Dashboard() {
       if (source && i.source !== source) return false;
       if (bidStatusFilter && normalizeBidStatus(bidStatusMap[i.id]) !== bidStatusFilter) return false;
       if (opportunityTypeFilter && !(i.opportunityTypes || []).includes(opportunityTypeFilter)) return false;
+      if (warmthFilter && ((WARMTH_META[i.warmth] || {}).label || i.warmth) !== warmthFilter) return false;
       if (q) {
         const hay = `${i.name} ${i.company} ${i.notes || ""} ${i.trigger || ""} ${i.pathToWin || ""} ${i.nextAction || ""} ${i.contact || ""} ${commentsIndex[i.id] || ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap, commentsIndex, opportunityTypeFilter]);
+  }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap, commentsIndex, opportunityTypeFilter, warmthFilter]);
   const grouped = useMemo(() => {
     const g = {};
     STATUS_ORDER.forEach(s => {
@@ -3469,7 +3604,7 @@ function Dashboard() {
     Object.values(g).forEach(arr => arr.sort(comparator));
     return g;
   }, [filtered, bidStatusMap, sortMode]);
-  const anyFilterActive = search || commodity || state || stage || source || tierFilter || bidStatusFilter || opportunityTypeFilter;
+  const anyFilterActive = search || commodity || state || stage || source || tierFilter || bidStatusFilter || opportunityTypeFilter || warmthFilter;
   const clearAll = () => {
     setSearch("");
     setCommodity("");
@@ -3479,6 +3614,7 @@ function Dashboard() {
     setTierFilter(null);
     setBidStatusFilter("");
     setOpportunityTypeFilter("");
+    setWarmthFilter("");
   };
   const exportCsv = () => {
     const columns = [{
@@ -3505,6 +3641,12 @@ function Dashboard() {
     }, {
       label: "Pursuit Status",
       get: i => normalizeBidStatus(bidStatusMap[i.id])
+    }, {
+      label: "Outreach Status",
+      get: i => outreachBadgeMeta(i).label
+    }, {
+      label: "Lead Warmth",
+      get: i => (WARMTH_META[i.warmth] || {}).label || i.warmth
     }, {
       label: "Added",
       get: i => i.createdAt
@@ -3579,7 +3721,7 @@ function Dashboard() {
     setOpenId(itemId);
   };
   const handleUndo = (item, field, oldValue) => {
-    if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);else if (field === "Stage") setStageOverride(item.id, oldValue, item.algoStage);else if (field === "Opportunity Type") {
+    if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);else if (field === "Stage") setStageOverride(item.id, oldValue, item.algoStage);else if (field === "Lead Warmth") setWarmthOverride(item.id, oldValue, item.algoWarmth);else if (field === "Opportunity Type") {
       const restored = oldValue === "None" || !oldValue ? [] : oldValue.split(", ");
       setOpportunityTypes(item.id, restored, item.algoOpportunityTypes);
     }
@@ -3623,7 +3765,7 @@ function Dashboard() {
 
         .bd-row-grid {
           display: grid;
-          grid-template-columns: minmax(0,2.2fr) minmax(0,1.4fr) 110px 64px 120px 100px 60px;
+          grid-template-columns: minmax(0,1.9fr) minmax(0,1.2fr) 110px 64px 120px 96px 84px 100px 60px;
           gap: 14px;
           align-items: center;
           padding: 13px 18px 13px 15px;
@@ -3893,6 +4035,11 @@ function Dashboard() {
     onChange: setOpportunityTypeFilter,
     options: allOpportunityTypes,
     placeholder: "Any opportunity type"
+  }), /*#__PURE__*/React.createElement(Select, {
+    value: warmthFilter,
+    onChange: setWarmthFilter,
+    options: WARMTH_ORDER.map(w => WARMTH_META[w].label),
+    placeholder: "Any warmth"
   }), anyFilterActive && /*#__PURE__*/React.createElement("button", {
     onClick: clearAll,
     style: {
@@ -4015,6 +4162,7 @@ function Dashboard() {
       onStageOverride: setStageOverride,
       onOpportunityTypesChange: setOpportunityTypes,
       allOpportunityTypes: allOpportunityTypes,
+      onWarmthChange: setWarmthOverride,
       canEdit: canEdit,
       onUndo: handleUndo
     })))));
