@@ -234,6 +234,19 @@ function formatUpdatedDate(updatedAt) {
   const formatted = formatShortDate(updatedAt);
   return formatted ? `Updated ${formatted}` : "Updated date unknown";
 }
+function daysAgo(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000));
+}
+function relativeDayLabel(dateStr, verb) {
+  const days = daysAgo(dateStr);
+  if (days === null) return null;
+  if (days <= 0) return `${verb} today`;
+  if (days === 1) return `${verb} yesterday`;
+  return `${verb} ${days}d ago`;
+}
 function companyLinkedInSearchUrl(item) {
   const company = item.company || item.name;
   return `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(company)}`;
@@ -558,6 +571,312 @@ function PipelineTrend() {
     day: "numeric",
     month: "short"
   }))));
+}
+// BD Report (2026-09-21, per Greg): a status report on outreach itself —
+// who's been contacted, who's connected, who's replied, who said yes to a
+// meeting, who's still pending, who's queued to go out next — as distinct
+// from "Week in Focus", which tracks opportunities (tasks due, stale
+// reviews), not people. Reads straight from outreach_queue; each row
+// already carries its own opportunity_name/company/contact fields so no
+// join against `opportunities` is needed, same as the Outreach Queue tab.
+function ReportStat({
+  label,
+  value,
+  color
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: "110px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'IBM Plex Mono', monospace",
+      fontSize: "24px",
+      color: color || "#EDE9E1"
+    }
+  }, value), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12px",
+      marginTop: "2px"
+    }
+  }, label));
+}
+function ReportContactRow({
+  row,
+  onOpenItem,
+  flag
+}) {
+  const timeLabel = relativeDayLabel(outreachLastActivity(row), "Updated");
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      gap: "12px",
+      padding: "12px 14px",
+      borderTop: "1px solid #23272D"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: "8px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    onClick: () => onOpenItem(row.item_id),
+    style: {
+      color: "#9CC3D4",
+      cursor: "pointer",
+      fontSize: "13.5px",
+      fontWeight: 500
+    }
+  }, row.opportunity_name || "Unknown opportunity"), flag && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#D8A657",
+      fontSize: "10.5px",
+      border: "1px solid #D8A657",
+      borderRadius: "3px",
+      padding: "1px 5px"
+    }
+  }, flag)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12px",
+      marginTop: "3px"
+    }
+  }, row.company || "Company unknown"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#9A9DA2",
+      fontSize: "12.5px",
+      marginTop: "4px"
+    }
+  }, row.contact_name || "Unnamed contact", row.contact_role ? ` · ${row.contact_role}` : "", row.contact_linkedin_url && /*#__PURE__*/React.createElement("a", {
+    href: row.contact_linkedin_url,
+    target: "_blank",
+    rel: "noreferrer",
+    onClick: e => e.stopPropagation(),
+    style: {
+      color: "#7A93B0",
+      marginLeft: "8px",
+      fontSize: "12px"
+    }
+  }, "LinkedIn ↗"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "11.5px",
+      flexShrink: 0,
+      whiteSpace: "nowrap",
+      fontFamily: "'IBM Plex Mono', monospace"
+    }
+  }, timeLabel || ""));
+}
+function ReportSection({
+  title,
+  description,
+  rows,
+  emptyText,
+  onOpenItem,
+  accentColor,
+  flagFn
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "36px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: accentColor || "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, title, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "14px",
+      fontWeight: 400,
+      marginLeft: "8px"
+    }
+  }, rows.length)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px",
+      marginBottom: "12px"
+    }
+  }, description), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "13px",
+      padding: "14px 0"
+    }
+  }, emptyText) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      overflow: "hidden"
+    }
+  }, rows.map(r => /*#__PURE__*/React.createElement(ReportContactRow, {
+    key: r.id,
+    row: r,
+    onOpenItem: onOpenItem,
+    flag: flagFn ? flagFn(r) : null
+  }))));
+}
+function BdReportPage({
+  onOpenItem
+}) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("outreach_queue").select("*").order("queued_at", {
+        ascending: false
+      });
+      if (error) {
+        setError("Couldn't load the BD report.");
+        return;
+      }
+      // scope_relevant === false rows were queued then ruled out as not a real
+      // fit - noise for this report, not a live part of the pipeline.
+      setRows((data || []).filter(r => r.scope_relevant !== false));
+    }
+    load();
+  }, []);
+  if (error) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#C1592E",
+        fontSize: "14px"
+      }
+    }, error);
+  }
+  if (rows === null) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#71767D",
+        fontSize: "14px"
+      }
+    }, "Loading report…");
+  }
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const meetingBooked = rows.filter(r => r.status === "meeting_booked").sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
+  const replied = rows.filter(r => r.status === "replied").sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
+  // Oldest activity first - these are the ones due a follow-up touch soonest.
+  const connected = rows.filter(r => r.status === "connected").sort((a, b) => new Date(outreachLastActivity(a) || 0) - new Date(outreachLastActivity(b) || 0));
+  const pending = rows.filter(r => ["connect_sent", "message_sent"].includes(r.status)).sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
+  const queued = rows.filter(r => ["approved", "ready_to_send"].includes(r.status)).sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
+  const awaitingReview = rows.filter(r => ["pending_review", "needs_profile"].includes(r.status)).sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
+  const declined = rows.filter(r => r.status === "declined");
+  const sentThisWeek = rows.filter(r => r.connect_sent_at && new Date(r.connect_sent_at) >= weekAgo).length;
+  const queuedThisWeek = rows.filter(r => r.queued_at && new Date(r.queued_at) >= weekAgo).length;
+  const flagStaleConnection = r => daysAgo(outreachLastActivity(r)) >= 14 ? "Follow up" : null;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#9A9DA2",
+      fontSize: "13.5px",
+      marginBottom: "28px",
+      lineHeight: 1.6
+    }
+  }, `This week: ${sentThisWeek} connection request${sentThisWeek === 1 ? "" : "s"} sent, ${queuedThisWeek} new contact${queuedThisWeek === 1 ? "" : "s"} queued. `, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268"
+    }
+  }, "Status only reflects what's been confirmed - LinkedIn doesn't report acceptances or replies back automatically, so \"Connected\"/\"Replied\" show what's been checked and recorded, not necessarily everything that's happened.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: "28px",
+      marginBottom: "36px",
+      padding: "18px 20px",
+      border: "1px solid #23272D",
+      borderRadius: "4px"
+    }
+  }, /*#__PURE__*/React.createElement(ReportStat, {
+    label: "Meetings booked",
+    value: meetingBooked.length,
+    color: "#7C9A5B"
+  }), /*#__PURE__*/React.createElement(ReportStat, {
+    label: "Replied",
+    value: replied.length,
+    color: "#4F7C90"
+  }), /*#__PURE__*/React.createElement(ReportStat, {
+    label: "Connected",
+    value: connected.length,
+    color: "#6B8F6B"
+  }), /*#__PURE__*/React.createElement(ReportStat, {
+    label: "Pending accept",
+    value: pending.length,
+    color: "#8B9BAE"
+  }), /*#__PURE__*/React.createElement(ReportStat, {
+    label: "Queued to send",
+    value: queued.length,
+    color: "#D8C889"
+  }), /*#__PURE__*/React.createElement(ReportStat, {
+    label: "Awaiting review",
+    value: awaitingReview.length,
+    color: "#9CC3D4"
+  })), /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Meetings booked",
+    accentColor: "#7C9A5B",
+    description: "Said yes to a meeting - the priority list.",
+    rows: meetingBooked,
+    emptyText: "None yet.",
+    onOpenItem: onOpenItem
+  }), /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Replied — in conversation",
+    accentColor: "#4F7C90",
+    description: "Connected and replied. Follow up to move these toward a meeting.",
+    rows: replied,
+    emptyText: "No replies yet.",
+    onOpenItem: onOpenItem
+  }), /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Connected — track for later",
+    accentColor: "#6B8F6B",
+    description: "Accepted the connection but no reply yet. Oldest first - these are due a follow-up touch.",
+    rows: connected,
+    emptyText: "No accepted connections recorded yet.",
+    onOpenItem: onOpenItem,
+    flagFn: flagStaleConnection
+  }), /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Pending — awaiting response",
+    accentColor: "#8B9BAE",
+    description: "Connection request sent, not yet accepted or declined.",
+    rows: pending,
+    emptyText: "Nothing sent and waiting right now.",
+    onOpenItem: onOpenItem
+  }), /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Queued to reach out",
+    accentColor: "#D8C889",
+    description: "Contact found and approved - next in line to be sent. Outreach happens live rather than on a fixed schedule, so this is effectively \"who's coming up.\"",
+    rows: queued,
+    emptyText: "Nothing queued right now.",
+    onOpenItem: onOpenItem
+  }), /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Found, awaiting your review",
+    accentColor: "#9CC3D4",
+    description: "Contacts found but not yet approved or skipped.",
+    rows: awaitingReview,
+    emptyText: "Nothing waiting on review.",
+    onOpenItem: onOpenItem
+  }), declined.length > 0 && /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Declined",
+    accentColor: "#71767D",
+    description: "Said no, or the request was declined.",
+    rows: declined,
+    emptyText: "",
+    onOpenItem: onOpenItem
+  }));
 }
 function FocusPage({
   items,
@@ -3873,9 +4192,33 @@ function Dashboard() {
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "Outreach")), /*#__PURE__*/React.createElement(SignInControl, {
+  }, "Outreach"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("report"),
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      color: view === "report" ? "#EDE9E1" : "#71767D",
+      fontSize: "13px",
+      fontWeight: 500,
+      borderBottom: view === "report" ? "2px solid #C1592E" : "2px solid transparent",
+      paddingBottom: "12px",
+      marginBottom: "-13px"
+    }
+  }, "BD Report")), /*#__PURE__*/React.createElement(SignInControl, {
     session: session
-  })), view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+  })), view === "report" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "28px",
+      color: "#EDE9E1",
+      margin: "0 0 28px 0"
+    }
+  }, "BD Report"), /*#__PURE__*/React.createElement(BdReportPage, {
+    onOpenItem: openItemFromActions
+  })) : view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
