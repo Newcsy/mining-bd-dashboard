@@ -813,6 +813,8 @@ function NextUpSection({
   onStartOutreach,
   startOutreachStatus,
   startOutreachCount,
+  readyToSendCount,
+  openInClaudeUrl,
   canEdit
 }) {
   const btnLabel = triggerStatus === "starting" ? "Starting…" : triggerStatus === "started" ? "Started — check back in ~30-60 min" : triggerStatus === "error" ? "Couldn't start, try again" : "Find more candidates";
@@ -876,13 +878,25 @@ function NextUpSection({
       padding: "5px 10px",
       cursor: triggerStatus === "starting" || triggerStatus === "started" ? "default" : "pointer"
     }
-  }, btnLabel))), /*#__PURE__*/React.createElement("div", {
+  }, btnLabel), readyToSendCount > 0 && /*#__PURE__*/React.createElement("a", {
+    href: openInClaudeUrl,
+    style: {
+      background: "none",
+      border: "1px solid #9CC3D4",
+      color: "#9CC3D4",
+      borderRadius: "4px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      textDecoration: "none",
+      display: "inline-block"
+    }
+  }, `Open in Claude to send (${readyToSendCount}) ↗`))), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "13px",
       marginBottom: "12px"
     }
-  }, "Top of the queue by chase priority (easiest to reach + best engineering fit first), across everything not yet sent — found, queued, and approved. \"Start outreach\" flags the ones below with a usable LinkedIn profile as ready — nothing gets sent by itself (LinkedIn has no send API), it just tells me to bring it up for a live sending pass next time we talk. \"Find more candidates\" runs a fresh pass over the board for new fits (drafts only — new ones land in \"Found, awaiting your review\" below); it usually takes 30-60 minutes."), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "Top of the queue by chase priority (easiest to reach + best engineering fit first), across everything not yet sent — found, queued, and approved. \"Start outreach\" flags the ones below with a usable LinkedIn profile as ready — nothing gets sent by itself (LinkedIn has no send API); \"Open in Claude to send\" opens a Claude chat (desktop app required) with the request pre-filled, so you just review and hit send there and I'll do the live LinkedIn pass with you. \"Find more candidates\" runs a fresh pass over the board for new fits (drafts only — new ones land in \"Found, awaiting your review\" below); it usually takes 30-60 minutes."), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "13px",
@@ -1083,6 +1097,20 @@ function BdReportPage({
       setStartOutreachStatus("error");
     }
   };
+  // Persisted count, not tied to this session's own button click - so the
+  // "Open in Claude" link shows up correctly even on a page reload, or if a
+  // batch was flagged in an earlier visit. Uses the real ready_to_send rows
+  // in `rows`, not the ephemeral startOutreachCount above.
+  const readyToSendCount = rows.filter(r => r.status === "ready_to_send").length;
+  // claude:// deep link (per Anthropic's documented desktop-app URL scheme,
+  // 2026-09-21) opens Claude Desktop with a new chat, prompt pre-filled -
+  // Greg still reviews and clicks send himself there, this just saves him
+  // retyping the request. Works only with the Claude desktop app installed;
+  // if it's not, the link just does nothing when clicked, so the button
+  // itself (Start outreach) plus telling me directly in any chat remains
+  // the reliable fallback either way.
+  const OPEN_IN_CLAUDE_PROMPT = "Start the outreach batch for the Mining BD Platform project: query Supabase outreach_queue for status = 'ready_to_send' rows, then go through each one live via Claude in Chrome - open the contact's LinkedIn profile, show me the drafted connection note (respecting LinkedIn's 300-character limit) before sending, and only click Connect after I confirm. After each real send, update that row to status = 'connect_sent' with connect_sent_at set to now.";
+  const openInClaudeUrl = "claude://claude.ai/new?q=" + encodeURIComponent(OPEN_IN_CLAUDE_PROMPT);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#9A9DA2",
@@ -1140,6 +1168,8 @@ function BdReportPage({
     onStartOutreach: startOutreach,
     startOutreachStatus: startOutreachStatus,
     startOutreachCount: startOutreachCount,
+    readyToSendCount: readyToSendCount,
+    openInClaudeUrl: openInClaudeUrl,
     canEdit: canEdit
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Meetings booked",
