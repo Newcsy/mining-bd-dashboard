@@ -712,6 +712,183 @@ function MeetingDateForm({
     }
   }, "Meeting booked"));
 }
+// Email-verification gate (2026-09-21, per Greg): LinkedIn sometimes refuses
+// a connection request unless the sender supplies an email it can match to
+// the contact. Separate from whether the contact is even the right person
+// (that's contact_rejected/"Not the right contact") - this is purely about
+// unblocking a send to a contact Greg already wants to reach.
+function EmailBlockControl({
+  row,
+  canEdit,
+  onToggle,
+  onSaveEmail
+}) {
+  const [email, setEmail] = useState(row.contact_email || "");
+  const [saved, setSaved] = useState(false);
+  if (!row.needs_email) {
+    return canEdit ? /*#__PURE__*/React.createElement("button", {
+      onClick: () => onToggle(row, true),
+      style: {
+        background: "none",
+        border: "none",
+        color: "#5E6268",
+        fontSize: "11px",
+        cursor: "pointer",
+        padding: 0,
+        marginTop: "6px",
+        textDecoration: "underline"
+      }
+    }, "Flag as needing an email to connect") : null;
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "8px",
+      padding: "8px 10px",
+      background: "#241D16",
+      border: "1px solid #4A3A1F",
+      borderRadius: "3px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#D8A657",
+      fontSize: "11.5px",
+      fontWeight: 600,
+      marginBottom: "6px"
+    }
+  }, "⚠ Needs an email to connect on LinkedIn"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "email",
+    placeholder: "email@company.com",
+    value: email,
+    disabled: !canEdit,
+    onChange: e => {
+      setEmail(e.target.value);
+      setSaved(false);
+    },
+    style: {
+      flex: "1 1 180px",
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12px",
+      padding: "5px 8px"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    disabled: !canEdit || !email.trim(),
+    onClick: () => {
+      onSaveEmail(row, email.trim());
+      setSaved(true);
+    },
+    style: {
+      background: "#2E4B3B",
+      border: "1px solid #3F6350",
+      color: "#C9E8D4",
+      borderRadius: "3px",
+      fontSize: "11.5px",
+      padding: "5px 10px",
+      cursor: canEdit ? "pointer" : "default"
+    }
+  }, saved ? "Saved ✓" : "Save email"), canEdit && /*#__PURE__*/React.createElement("button", {
+    onClick: () => onToggle(row, false),
+    style: {
+      background: "none",
+      border: "none",
+      color: "#71767D",
+      fontSize: "11px",
+      cursor: "pointer",
+      textDecoration: "underline"
+    }
+  }, "Mark resolved")));
+}
+// Manual "I already know who the right contact is" replacement, alongside
+// the live find-someone-else trigger for when Greg doesn't (2026-09-21).
+function ReplacementContactForm({
+  row,
+  canEdit,
+  onSave
+}) {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [linkedin, setLinkedin] = useState("");
+  const [saved, setSaved] = useState(false);
+  if (saved) {
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#7C9A5B",
+        fontSize: "11.5px"
+      }
+    }, "Replacement saved — back in Ready to review ✓");
+  }
+  const inputStyle = {
+    background: "#1D2126",
+    border: "1px solid #2C3138",
+    borderRadius: "3px",
+    color: "#EDE9E1",
+    fontSize: "12px",
+    padding: "5px 8px",
+    flex: "1 1 140px"
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "8px",
+      display: "flex",
+      flexDirection: "column",
+      gap: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    placeholder: "New contact name",
+    value: name,
+    disabled: !canEdit,
+    onChange: e => setName(e.target.value),
+    style: inputStyle
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    placeholder: "Role (optional)",
+    value: role,
+    disabled: !canEdit,
+    onChange: e => setRole(e.target.value),
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    placeholder: "LinkedIn profile URL (optional)",
+    value: linkedin,
+    disabled: !canEdit,
+    onChange: e => setLinkedin(e.target.value),
+    style: Object.assign({}, inputStyle, {
+      flex: "1 1 auto"
+    })
+  }), /*#__PURE__*/React.createElement("button", {
+    disabled: !canEdit || !name.trim(),
+    onClick: () => {
+      onSave(row, name.trim(), role.trim(), linkedin.trim());
+      setSaved(true);
+    },
+    style: {
+      alignSelf: "flex-start",
+      background: "#2E4B3B",
+      border: "1px solid #3F6350",
+      color: "#C9E8D4",
+      borderRadius: "3px",
+      fontSize: "12px",
+      padding: "5px 12px",
+      cursor: canEdit ? "pointer" : "default"
+    }
+  }, "Save replacement"));
+}
 function ReportContactRow({
   row,
   onOpenItem,
@@ -1106,7 +1283,7 @@ function BdReportPage({
   // ranked by chase priority rather than split by status, so this answers
   // "who are we targeting next" as one prioritized list. Capped at 15 (middle
   // of the 10-20 range Greg asked for).
-  const nextUpPool = rows.filter(r => ["approved", "ready_to_send", "pending_review", "needs_profile"].includes(r.status));
+  const nextUpPool = rows.filter(r => ["approved", "ready_to_send", "pending_review", "needs_profile"].includes(r.status) && !r.contact_rejected);
   const nextUp = [...nextUpPool].sort((a, b) => {
     const ca = chaseByItem[a.item_id] ?? -1;
     const cb = chaseByItem[b.item_id] ?? -1;
@@ -1171,7 +1348,7 @@ function BdReportPage({
   // if it's not, the link just does nothing when clicked, so the button
   // itself (Start outreach) plus telling me directly in any chat remains
   // the reliable fallback either way.
-  const OPEN_IN_CLAUDE_PROMPT = "Start the outreach batch for the Mining BD Platform project: query Supabase outreach_queue for status = 'ready_to_send' rows, then go through each one live via Claude in Chrome - open the contact's LinkedIn profile, show me the drafted connection note (respecting LinkedIn's 300-character limit) before sending, and only click Connect after I confirm. After each real send, update that row to status = 'connect_sent' with connect_sent_at set to now.";
+  const OPEN_IN_CLAUDE_PROMPT = "Start the outreach batch for the Mining BD Platform project: query Supabase outreach_queue for status = 'ready_to_send' rows, then go through each one live via Claude in Chrome - open the contact's LinkedIn profile, show me the drafted connection note (respecting LinkedIn's 300-character limit) before sending, and only click Connect after I confirm. If a row has needs_email = true, LinkedIn will likely ask for an email to verify the contact before it lets the request send - use that row's contact_email if it's filled in, otherwise skip that row and tell me you need an email for it rather than guessing one. After each real send, update that row to status = 'connect_sent' with connect_sent_at set to now.";
   const openInClaudeUrl = "claude://claude.ai/new?q=" + encodeURIComponent(OPEN_IN_CLAUDE_PROMPT);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1924,6 +2101,41 @@ function OutreachQueue({
       draft_message: value
     });
   };
+  // Contact reassignment + email-gate (2026-09-21, per Greg): flagging a
+  // contact as wrong pulls it out of the normal review/send flow (back to
+  // needs_profile, distinguished by contact_rejected so it doesn't get
+  // confused with "no LinkedIn URL yet") into its own section with a manual
+  // replace form and a live find-someone-else trigger. needs_email/
+  // contact_email are separate from contact_rejected - LinkedIn's
+  // email-verification gate has nothing to do with whether the contact is
+  // the right person.
+  const notRightContact = row => {
+    updateRow(row.id, {
+      contact_rejected: true,
+      status: "needs_profile",
+      prep_note: (row.prep_note ? row.prep_note + " " : "") + `[${new Date().toISOString().split("T")[0]}] Flagged by Greg as the wrong contact.`
+    });
+  };
+  const saveReplacementContact = (row, name, role, linkedin) => {
+    updateRow(row.id, {
+      contact_name: name,
+      contact_role: role || null,
+      contact_linkedin_url: linkedin || null,
+      contact_rejected: false,
+      status: "pending_review",
+      reviewed_at: null
+    });
+  };
+  const toggleNeedsEmail = (row, value) => updateRow(row.id, {
+    needs_email: value
+  });
+  const saveContactEmail = (row, email) => updateRow(row.id, {
+    contact_email: email
+  });
+  const findDifferentContactUrl = row => {
+    const prompt = `Find a better BD contact for the Mining BD Platform project. Opportunity: "${row.opportunity_name}" at ${row.company || "an unknown company"} (outreach_queue id ${row.id}, item_id ${row.item_id}). The previously queued contact, ${row.contact_name || "unknown"}${row.contact_role ? ` (${row.contact_role})` : ""}, was flagged by Greg as not the right person to reach out to for this specific project. Research live via Claude in Chrome (LinkedIn, the company's website, recent news) to find a more suitable contact - ideally someone in business development, project delivery, or a technical/commercial decision-making role for this project, not just the most senior person at the parent company. Tell me who you found and why before updating anything, and confirm with me if you're not confident it's a genuinely better fit. Once confirmed, update outreach_queue row id ${row.id} in Supabase: set contact_name, contact_role, contact_linkedin_url to the new contact, contact_rejected to false, and status to 'pending_review'.`;
+    return "claude://claude.ai/new?q=" + encodeURIComponent(prompt);
+  };
   if (error) return /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#C1592E",
@@ -1937,7 +2149,8 @@ function OutreachQueue({
     }
   }, "Loading…");
   const pendingReview = rows.filter(r => r.status === "pending_review").sort(byChaseThenQueued);
-  const needsProfile = rows.filter(r => r.status === "needs_profile").sort(byChaseThenQueued);
+  const needsProfile = rows.filter(r => r.status === "needs_profile" && !r.contact_rejected).sort(byChaseThenQueued);
+  const needsNewContact = rows.filter(r => r.contact_rejected).sort(byChaseThenQueued);
   const readyToSend = rows.filter(r => r.status === "ready_to_send");
   const pipeline = rows.filter(r => Object.prototype.hasOwnProperty.call(OUTREACH_PIPELINE_STATUS, r.status)).sort((a, b) => OUTREACH_PIPELINE_STATUS[a.status].rank - OUTREACH_PIPELINE_STATUS[b.status].rank);
   const actioned = rows.filter(r => !["pending_review", "needs_profile", "ready_to_send"].includes(r.status) && !Object.prototype.hasOwnProperty.call(OUTREACH_PIPELINE_STATUS, r.status));
@@ -1969,7 +2182,17 @@ function OutreachQueue({
       cursor: canEdit ? "pointer" : "default",
       fontSize: "12.5px"
     }
-  }, "Skip"));
+  }, "Skip"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => notRightContact(row),
+    disabled: !canEdit,
+    style: {
+      background: "none",
+      border: "none",
+      color: "#E9987A",
+      cursor: canEdit ? "pointer" : "default",
+      fontSize: "12.5px"
+    }
+  }, "Not the right contact"));
   const sentActions = row => /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -1995,7 +2218,17 @@ function OutreachQueue({
       color: "#71767D",
       fontSize: "11.5px"
     }
-  }, "Pre-filled in your LinkedIn tab — open it, review, click Send there, then mark it here."));
+  }, "Pre-filled in your LinkedIn tab — open it, review, click Send there, then mark it here."), /*#__PURE__*/React.createElement("button", {
+    onClick: () => notRightContact(row),
+    disabled: !canEdit,
+    style: {
+      background: "none",
+      border: "none",
+      color: "#E9987A",
+      cursor: canEdit ? "pointer" : "default",
+      fontSize: "12.5px"
+    }
+  }, "Not the right contact"));
   // Rows sitting at "sent, no confirmed outcome yet" — these are the ones a
   // status-check pass actually needs to look at on LinkedIn. Rows already at
   // connected/replied/meeting_booked/declined are resolved and don't need
@@ -2189,7 +2422,12 @@ function OutreachQueue({
       fontSize: "12.5px",
       marginLeft: "8px"
     }
-  }, "No LinkedIn profile yet")), /*#__PURE__*/React.createElement("textarea", {
+  }, "No LinkedIn profile yet")), /*#__PURE__*/React.createElement(EmailBlockControl, {
+    row: row,
+    canEdit: canEdit,
+    onToggle: toggleNeedsEmail,
+    onSaveEmail: saveContactEmail
+  }), /*#__PURE__*/React.createElement("textarea", {
     defaultValue: row.draft_message || "",
     disabled: !canEdit,
     onBlur: e => saveDraft(row, e.target.value),
@@ -2231,13 +2469,67 @@ function OutreachQueue({
       fontStyle: "italic"
     }
   }, "Scope relevance not yet checked"), actions(row));
+  const renderNeedsNewContactCard = row => /*#__PURE__*/React.createElement("div", {
+    key: row.id,
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      background: "#181B20",
+      padding: "14px 16px",
+      marginBottom: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      flexWrap: "wrap",
+      gap: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    onClick: () => onOpenItem(row.item_id),
+    style: {
+      color: "#9CC3D4",
+      cursor: "pointer",
+      fontSize: "14px"
+    }
+  }, row.opportunity_name), row.company && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px"
+    }
+  }, " — ", row.company))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "8px",
+      fontSize: "12.5px",
+      color: "#71767D",
+      textDecoration: "line-through"
+    }
+  }, "Previously: ", row.contact_name || "Unnamed contact", row.contact_role ? ` (${row.contact_role})` : ""), /*#__PURE__*/React.createElement(ReplacementContactForm, {
+    row: row,
+    canEdit: canEdit,
+    onSave: saveReplacementContact
+  }), canEdit && /*#__PURE__*/React.createElement("a", {
+    href: findDifferentContactUrl(row),
+    style: {
+      display: "inline-block",
+      marginTop: "10px",
+      background: "none",
+      border: "1px solid #9CC3D4",
+      color: "#9CC3D4",
+      borderRadius: "4px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      textDecoration: "none"
+    }
+  }, "Find a different contact ↗"));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "13px",
       marginBottom: "20px"
     }
-  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile · ${readyToSend.length} ready to send · ${pipeline.length} in pipeline`), pendingReview.length === 0 && needsProfile.length === 0 && readyToSend.length === 0 && pipeline.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile · ${needsNewContact.length} need a different contact · ${readyToSend.length} ready to send · ${pipeline.length} in pipeline`), pendingReview.length === 0 && needsProfile.length === 0 && needsNewContact.length === 0 && readyToSend.length === 0 && pipeline.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "13px",
@@ -2274,7 +2566,26 @@ function OutreachQueue({
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "These have a named contact but no LinkedIn profile URL yet — profile lookup is a manual/browser step, not automated."), needsProfile.map(row => renderCard(row, cardActions))), readyToSend.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "These have a named contact but no LinkedIn profile URL yet — profile lookup is a manual/browser step, not automated."), needsProfile.map(row => renderCard(row, cardActions))), needsNewContact.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "32px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, "Needs a different contact"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12.5px",
+      fontStyle: "italic",
+      marginBottom: "12px"
+    }
+  }, "Flagged as the wrong person for this project. Type in a replacement if you already know one, or \"Find a different contact\" to have me research it live."), needsNewContact.map(renderNeedsNewContactCard)), readyToSend.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "32px"
     }
