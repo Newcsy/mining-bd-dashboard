@@ -478,34 +478,96 @@ function ReviewSection({
     item: item
   })))));
 }
-function PipelineTrend() {
+// Ingest-refresh trigger (2026-09-21, per Greg): fires the same daily
+// MINEDEX/EPA WA/Mining.com scrape + scoring pass the Schedule Trigger runs,
+// on demand. Webhook is wired to the exact same 3 downstream nodes the
+// Schedule Trigger fans out to in n8n, so this is not a separate/lesser
+// path - it's the real ingest run, just triggered manually instead of by
+// the clock. New opportunities land in `opportunities` automatically on
+// their own daily schedule already; this is for "check right now" rather
+// than a requirement to see new ones at all.
+const INGEST_REFRESH_WEBHOOK_URL = "https://newcomb.app.n8n.cloud/webhook/ingest-refresh";
+const INGEST_REFRESH_KEY = "U8mSNyORLVXt3l-edDAfV57ls46LMB6y";
+function PipelineTrend({
+  canEdit
+}) {
   const [snapshots, setSnapshots] = useState(null);
+  const [refreshStatus, setRefreshStatus] = useState("idle");
   useEffect(() => {
     async function load() {
+      // Fetch the most recent 12 snapshots, not the oldest 12 - the prior
+      // `.order(ascending:true).limit(12)` picked up the earliest 12 rows in
+      // the table, which is why this chart looked stuck in early September
+      // even though the backend has in fact been writing a snapshot every
+      // single day. Fixed 2026-09-21: fetch newest-first, then reverse for
+      // left-to-right chronological display.
       const {
         data,
         error
       } = await supabaseClient.from("pipeline_snapshots").select("*").order("snapshot_date", {
-        ascending: true
+        ascending: false
       }).limit(12);
-      setSnapshots(error ? [] : data);
+      setSnapshots(error ? [] : (data || []).slice().reverse());
     }
     load();
   }, []);
+  const triggerRefresh = async () => {
+    setRefreshStatus("starting");
+    try {
+      const resp = await fetch(INGEST_REFRESH_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "x-refresh-key": INGEST_REFRESH_KEY
+        }
+      });
+      if (!resp.ok) throw new Error("bad status " + resp.status);
+      setRefreshStatus("started");
+    } catch (e) {
+      setRefreshStatus("error");
+    }
+  };
+  const refreshLabel = refreshStatus === "starting" ? "Starting…" : refreshStatus === "started" ? "Started — check back in ~30-60 min" : refreshStatus === "error" ? "Couldn't start, try again" : "Refresh opportunities now";
+  const refreshDisabled = refreshStatus === "starting" || refreshStatus === "started";
+  const refreshButton = canEdit && /*#__PURE__*/React.createElement("button", {
+    onClick: triggerRefresh,
+    disabled: refreshDisabled,
+    style: {
+      background: "none",
+      border: "1px solid #C1592E",
+      color: refreshStatus === "started" ? "#7C9A5B" : refreshStatus === "starting" ? "#5E6268" : "#C1592E",
+      borderRadius: "4px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      cursor: refreshDisabled ? "default" : "pointer"
+    }
+  }, refreshLabel);
   if (snapshots === null) return null;
   if (snapshots.length < 2) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
-        color: "#5E6268",
-        fontSize: "13px",
         marginBottom: "32px"
       }
-    }, "Pipeline trend will build up here as this page gets opened after each weekly refresh.");
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "#5E6268",
+        fontSize: "13px",
+        marginBottom: "10px"
+      }
+    }, "Pipeline trend will build up here as this page gets opened after each daily refresh."), refreshButton);
   }
   const max = Math.max(...snapshots.map(s => s.total_count || 0), 1);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "36px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      flexWrap: "wrap",
+      gap: "10px",
+      marginBottom: "4px"
     }
   }, /*#__PURE__*/React.createElement("h2", {
     style: {
@@ -513,15 +575,15 @@ function PipelineTrend() {
       fontWeight: 600,
       fontSize: "19px",
       color: "#EDE9E1",
-      margin: "0 0 4px 0"
+      margin: 0
     }
-  }, "Pipeline over time"), /*#__PURE__*/React.createElement("div", {
+  }, "Pipeline over time"), refreshButton), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "13px",
       marginBottom: "14px"
     }
-  }, "Total tracked opportunities at each weekly snapshot."), /*#__PURE__*/React.createElement("div", {
+  }, "Total tracked opportunities at each daily snapshot. New opportunities are ingested automatically once a day from MINEDEX, EPA WA and Mining.com — \"Refresh opportunities now\" runs that same pass on demand rather than waiting for the clock."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "flex-end",
@@ -1232,7 +1294,8 @@ function BdReportPage({
 function FocusPage({
   items,
   onOpenItem,
-  bidStatusMap
+  bidStatusMap,
+  canEdit
 }) {
   const [tasks, setTasks] = useState(null);
   useEffect(() => {
@@ -1308,7 +1371,9 @@ function FocusPage({
       month: "short"
     })));
   };
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PipelineTrend, null), tasks !== null && (overdueTasks.length > 0 || dueThisWeekTasks.length > 0) && /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PipelineTrend, {
+    canEdit: canEdit
+  }), tasks !== null && (overdueTasks.length > 0 || dueThisWeekTasks.length > 0) && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "36px"
     }
@@ -4622,7 +4687,8 @@ function Dashboard() {
   }, "Week in Focus"), /*#__PURE__*/React.createElement(FocusPage, {
     items: effectiveItems,
     onOpenItem: openItemFromActions,
-    bidStatusMap: bidStatusMap
+    bidStatusMap: bidStatusMap,
+    canEdit: canEdit
   })) : view === "comments" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
