@@ -602,12 +602,63 @@ function ReportStat({
     }
   }, label));
 }
+function MeetingDateForm({
+  onSave
+}) {
+  const [date, setDate] = useState("");
+  const [saved, setSaved] = useState(false);
+  if (saved) {
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#7C9A5B",
+        fontSize: "11.5px"
+      }
+    }, "Meeting booked ✓");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: date,
+    onChange: e => setDate(e.target.value),
+    style: {
+      background: "#1B1E23",
+      border: "1px solid #23272D",
+      color: "#EDE9E1",
+      fontSize: "11.5px",
+      borderRadius: "3px",
+      padding: "2px 5px"
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    disabled: !date,
+    onClick: () => {
+      onSave(date);
+      setSaved(true);
+    },
+    style: {
+      background: "none",
+      border: "1px solid #7C9A5B",
+      color: date ? "#7C9A5B" : "#3A3D42",
+      borderRadius: "3px",
+      fontSize: "11px",
+      padding: "2px 8px",
+      cursor: date ? "pointer" : "default"
+    }
+  }, "Meeting booked"));
+}
 function ReportContactRow({
   row,
   onOpenItem,
-  flag
+  flag,
+  canEdit,
+  actionsFn
 }) {
   const timeLabel = relativeDayLabel(outreachLastActivity(row), "Updated");
+  const action = canEdit && actionsFn ? actionsFn(row) : null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -645,7 +696,15 @@ function ReportContactRow({
       borderRadius: "3px",
       padding: "1px 5px"
     }
-  }, flag)), /*#__PURE__*/React.createElement("div", {
+  }, flag), row.meeting_date && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#7C9A5B",
+      fontSize: "10.5px",
+      border: "1px solid #7C9A5B",
+      borderRadius: "3px",
+      padding: "1px 5px"
+    }
+  }, "Meeting: ", formatShortDate(row.meeting_date))), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "12px",
@@ -667,7 +726,11 @@ function ReportContactRow({
       marginLeft: "8px",
       fontSize: "12px"
     }
-  }, "LinkedIn ↗"))), /*#__PURE__*/React.createElement("div", {
+  }, "LinkedIn ↗")), action && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "8px"
+    }
+  }, action)), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "11.5px",
@@ -684,7 +747,9 @@ function ReportSection({
   emptyText,
   onOpenItem,
   accentColor,
-  flagFn
+  flagFn,
+  canEdit,
+  actionsFn
 }) {
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -727,14 +792,102 @@ function ReportSection({
     key: r.id,
     row: r,
     onOpenItem: onOpenItem,
-    flag: flagFn ? flagFn(r) : null
+    flag: flagFn ? flagFn(r) : null,
+    canEdit: canEdit,
+    actionsFn: actionsFn
   }))));
 }
+function NextUpSection({
+  rows,
+  onOpenItem,
+  onTrigger,
+  triggerStatus,
+  canEdit
+}) {
+  const btnLabel = triggerStatus === "starting" ? "Starting…" : triggerStatus === "started" ? "Started — check back in ~30-60 min" : triggerStatus === "error" ? "Couldn't start, try again" : "Find more candidates";
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "36px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      flexWrap: "wrap",
+      gap: "10px",
+      marginBottom: "4px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#C1592E",
+      margin: 0
+    }
+  }, "Next up this week", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268",
+      fontSize: "14px",
+      fontWeight: 400,
+      marginLeft: "8px"
+    }
+  }, rows.length)), canEdit && /*#__PURE__*/React.createElement("button", {
+    onClick: onTrigger,
+    disabled: triggerStatus === "starting" || triggerStatus === "started",
+    style: {
+      background: "none",
+      border: "1px solid #C1592E",
+      color: triggerStatus === "started" ? "#7C9A5B" : triggerStatus === "starting" ? "#5E6268" : "#C1592E",
+      borderRadius: "4px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      cursor: triggerStatus === "starting" || triggerStatus === "started" ? "default" : "pointer"
+    }
+  }, btnLabel)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px",
+      marginBottom: "12px"
+    }
+  }, "Top of the queue by chase priority (easiest to reach + best engineering fit first), across everything not yet sent — found, queued, and approved. \"Find more candidates\" runs a fresh pass over the board for new fits (drafts only, nothing gets sent automatically — new ones land in \"Found, awaiting your review\" below); it usually takes 30-60 minutes."), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#5E6268",
+      fontSize: "13px",
+      padding: "14px 0"
+    }
+  }, "Nothing queued right now.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      overflow: "hidden"
+    }
+  }, rows.map(r => /*#__PURE__*/React.createElement(ReportContactRow, {
+    key: r.id,
+    row: r,
+    onOpenItem: onOpenItem
+  }))));
+}
+// Webhook that fires the "Outreach Queue Builder" n8n workflow (added
+// 2026-09-21, per Greg explicitly choosing this over the alternatives when
+// asked). Gated by a shared-secret header the webhook checks via its own
+// onlyRunIf option (wrong/missing key -> silent 200, no execution, no
+// OpenAI/Monday cost) -- not real secrecy since this file is public, but
+// stops the URL being trivially hammered if found. CORS is locked to this
+// dashboard's real origin on the n8n side. A full run is a 30-60 minute LLM
+// triage pass over the whole board, so this fires-and-forgets (webhook
+// responds immediately) rather than waiting for completion.
+const OUTREACH_REFILL_WEBHOOK_URL = "https://newcomb.app.n8n.cloud/webhook/outreach-refill";
+const OUTREACH_REFILL_KEY = "GY9ur4YbV2c4jt9WibHIDBGGKEXt_-8r";
 function BdReportPage({
-  onOpenItem
+  onOpenItem,
+  canEdit
 }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
+  const [chaseByItem, setChaseByItem] = useState({});
+  const [triggerStatus, setTriggerStatus] = useState("idle");
   useEffect(() => {
     async function load() {
       const {
@@ -749,10 +902,69 @@ function BdReportPage({
       }
       // scope_relevant === false rows were queued then ruled out as not a real
       // fit - noise for this report, not a live part of the pipeline.
-      setRows((data || []).filter(r => r.scope_relevant !== false));
+      const scoped = (data || []).filter(r => r.scope_relevant !== false);
+      setRows(scoped);
+      // Same "best placed to chase" ranking as the Outreach Queue tab / main
+      // Pipeline view (Owner Accessibility + NPI Potential combined, BD score
+      // as tie-break) so "Next up this week" agrees with the numbers Greg
+      // already trusts elsewhere rather than inventing a new order.
+      const itemIds = Array.from(new Set(scoped.map(r => r.item_id).filter(Boolean)));
+      if (itemIds.length) {
+        const {
+          data: oppRows,
+          error: oppError
+        } = await supabaseClient.from("opportunities").select("item_id, npi_potential, owner_accessibility, bd_score").in("item_id", itemIds);
+        if (!oppError && oppRows) {
+          const byItem = {};
+          for (const o of oppRows) {
+            const npiSub = {
+              High: 20,
+              Medium: 10,
+              Low: 0
+            }[o.npi_potential] ?? 5;
+            const accessSub = {
+              High: 10,
+              Medium: 5,
+              Low: 0
+            }[o.owner_accessibility] ?? 3;
+            const bdScore = o.bd_score != null ? Number(o.bd_score) : 0;
+            byItem[o.item_id] = (npiSub + accessSub) * 1000 + bdScore;
+          }
+          setChaseByItem(byItem);
+        }
+      }
     }
     load();
   }, []);
+  const updateRow = async (id, patch) => {
+    setRows(prev => prev ? prev.map(r => r.id === id ? {
+      ...r,
+      ...patch
+    } : r) : prev);
+    await supabaseClient.from("outreach_queue").update(patch).eq("id", id);
+  };
+  const markConnected = row => updateRow(row.id, {
+    status: "connected"
+  });
+  const markMeetingBooked = (row, dateStr) => updateRow(row.id, {
+    status: "meeting_booked",
+    meeting_date: dateStr
+  });
+  const triggerRefill = async () => {
+    setTriggerStatus("starting");
+    try {
+      const resp = await fetch(OUTREACH_REFILL_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "x-outreach-key": OUTREACH_REFILL_KEY
+        }
+      });
+      if (!resp.ok) throw new Error("bad status " + resp.status);
+      setTriggerStatus("started");
+    } catch (e) {
+      setTriggerStatus("error");
+    }
+  };
   if (error) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
@@ -781,6 +993,32 @@ function BdReportPage({
   const sentThisWeek = rows.filter(r => r.connect_sent_at && new Date(r.connect_sent_at) >= weekAgo).length;
   const queuedThisWeek = rows.filter(r => r.queued_at && new Date(r.queued_at) >= weekAgo).length;
   const flagStaleConnection = r => daysAgo(outreachLastActivity(r)) >= 14 ? "Follow up" : null;
+  // "Next up this week" - everything not yet sent (found, queued, approved),
+  // ranked by chase priority rather than split by status, so this answers
+  // "who are we targeting next" as one prioritized list. Capped at 15 (middle
+  // of the 10-20 range Greg asked for).
+  const nextUpPool = rows.filter(r => ["approved", "ready_to_send", "pending_review", "needs_profile"].includes(r.status));
+  const nextUp = [...nextUpPool].sort((a, b) => {
+    const ca = chaseByItem[a.item_id] ?? -1;
+    const cb = chaseByItem[b.item_id] ?? -1;
+    if (cb !== ca) return cb - ca;
+    return new Date(b.queued_at || 0) - new Date(a.queued_at || 0);
+  }).slice(0, 15);
+  const pendingActions = row => /*#__PURE__*/React.createElement("button", {
+    onClick: () => markConnected(row),
+    style: {
+      background: "none",
+      border: "1px solid #6B8F6B",
+      color: "#6B8F6B",
+      borderRadius: "3px",
+      fontSize: "11px",
+      padding: "2px 8px",
+      cursor: "pointer"
+    }
+  }, "Mark connected");
+  const meetingActions = row => /*#__PURE__*/React.createElement(MeetingDateForm, {
+    onSave: dateStr => markMeetingBooked(row, dateStr)
+  });
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#9A9DA2",
@@ -792,7 +1030,11 @@ function BdReportPage({
     style: {
       color: "#5E6268"
     }
-  }, "Status only reflects what's been confirmed - LinkedIn doesn't report acceptances or replies back automatically, so \"Connected\"/\"Replied\" show what's been checked and recorded, not necessarily everything that's happened.")), /*#__PURE__*/React.createElement("div", {
+  }, "Status only reflects what's been confirmed - LinkedIn doesn't report acceptances or replies back automatically, so \"Connected\"/\"Replied\" show what's been checked and recorded, not necessarily everything that's happened."), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#5E6268"
+    }
+  }, "Project data (new opportunities, stage changes) syncs automatically every day around midnight (Perth time). New outreach candidates only get found when \"Find more candidates\" below is run - not on a fixed schedule.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
@@ -826,7 +1068,13 @@ function BdReportPage({
     label: "Awaiting review",
     value: awaitingReview.length,
     color: "#9CC3D4"
-  })), /*#__PURE__*/React.createElement(ReportSection, {
+  })), /*#__PURE__*/React.createElement(NextUpSection, {
+    rows: nextUp,
+    onOpenItem: onOpenItem,
+    onTrigger: triggerRefill,
+    triggerStatus: triggerStatus,
+    canEdit: canEdit
+  }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Meetings booked",
     accentColor: "#7C9A5B",
     description: "Said yes to a meeting - the priority list.",
@@ -839,7 +1087,9 @@ function BdReportPage({
     description: "Connected and replied. Follow up to move these toward a meeting.",
     rows: replied,
     emptyText: "No replies yet.",
-    onOpenItem: onOpenItem
+    onOpenItem: onOpenItem,
+    canEdit: canEdit,
+    actionsFn: meetingActions
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Connected — track for later",
     accentColor: "#6B8F6B",
@@ -847,14 +1097,18 @@ function BdReportPage({
     rows: connected,
     emptyText: "No accepted connections recorded yet.",
     onOpenItem: onOpenItem,
-    flagFn: flagStaleConnection
+    flagFn: flagStaleConnection,
+    canEdit: canEdit,
+    actionsFn: meetingActions
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Pending — awaiting response",
     accentColor: "#8B9BAE",
     description: "Connection request sent, not yet accepted or declined.",
     rows: pending,
     emptyText: "Nothing sent and waiting right now.",
-    onOpenItem: onOpenItem
+    onOpenItem: onOpenItem,
+    canEdit: canEdit,
+    actionsFn: pendingActions
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Queued to reach out",
     accentColor: "#D8C889",
@@ -3548,6 +3802,16 @@ function Dashboard() {
   const [items, setItems] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [generatedAt, setGeneratedAt] = useState(null);
+  // Separate from generatedAt (which is "when this page loaded", used only as
+  // the calendar-day key for the client-side pipeline_snapshots upsert below
+  // -- not a real freshness signal). lastDataChangeAt is the real answer to
+  // "when did the underlying project data actually last change": the max
+  // opportunities.updated_at from the n8n sync job itself. Added 2026-09-21
+  // per Greg asking when the page updates -- see BdReportPage/header for
+  // where this is shown, and the brief for the verified sync schedule
+  // (n8n Schedule Trigger fires daily ~00:00 AWST + an extra pass Monday
+  // ~06:00 AWST; confirmed via real execution history, not inferred).
+  const [lastDataChangeAt, setLastDataChangeAt] = useState(null);
   const [search, setSearch] = useState("");
   const [commodity, setCommodity] = useState("");
   const [state, setState] = useState("");
@@ -3741,7 +4005,7 @@ function Dashboard() {
     // disappear from the dashboard (see brief, 2026-09-10 session).
     async function loadItems() {
       try {
-        const [oppResult, outreachResult] = await Promise.all([supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, npi_potential, owner_accessibility, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw").limit(2000), supabaseClient.from("outreach_queue").select("item_id, contact_name, contact_role, contact_linkedin_url, status, queued_at, prepared_at, connect_sent_at, message_sent_at, reviewed_at")]);
+        const [oppResult, outreachResult] = await Promise.all([supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, npi_potential, owner_accessibility, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw, updated_at").limit(2000), supabaseClient.from("outreach_queue").select("item_id, contact_name, contact_role, contact_linkedin_url, status, queued_at, prepared_at, connect_sent_at, message_sent_at, reviewed_at")]);
         const {
           data,
           error
@@ -3810,6 +4074,8 @@ function Dashboard() {
         });
         setItems(mapped);
         setGeneratedAt(new Date().toISOString());
+        const changeTimes = (data || []).map(r => r.updated_at ? new Date(r.updated_at).getTime() : 0).filter(t => t > 0);
+        if (changeTimes.length) setLastDataChangeAt(new Date(Math.max(...changeTimes)).toISOString());
       } catch (e) {
         setLoadError(e.message);
       }
@@ -4217,7 +4483,8 @@ function Dashboard() {
       margin: "0 0 28px 0"
     }
   }, "BD Report"), /*#__PURE__*/React.createElement(BdReportPage, {
-    onOpenItem: openItemFromActions
+    onOpenItem: openItemFromActions,
+    canEdit: canEdit
   })) : view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
@@ -4293,11 +4560,15 @@ function Dashboard() {
       fontSize: "12.5px",
       textAlign: "right"
     }
-  }, "Last updated", /*#__PURE__*/React.createElement("br", null), generatedAt ? new Date(generatedAt).toLocaleDateString("en-AU", {
+  }, "Data last changed", /*#__PURE__*/React.createElement("br", null), lastDataChangeAt ? new Date(lastDataChangeAt).toLocaleDateString("en-AU", {
     day: "numeric",
     month: "long",
     year: "numeric"
-  }) : "unknown")), /*#__PURE__*/React.createElement(StrataBar, {
+  }) : "unknown", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: "11px"
+    }
+  }, "Syncs daily, ~midnight AWST"))), /*#__PURE__*/React.createElement(StrataBar, {
     counts: counts,
     total: items.length
   }), /*#__PURE__*/React.createElement(CommodityStrip, {
