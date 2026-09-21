@@ -1931,6 +1931,14 @@ function OutreachQueue({
       fontSize: "11.5px"
     }
   }, "Pre-filled in your LinkedIn tab — open it, review, click Send there, then mark it here."));
+  // Rows sitting at "sent, no confirmed outcome yet" — these are the ones a
+  // status-check pass actually needs to look at on LinkedIn. Rows already at
+  // connected/replied/meeting_booked/declined are resolved and don't need
+  // re-checking. Computed live from `rows`, not tied to a button click, so
+  // it's correct on page load even if flagged by an earlier session (2026-09-21).
+  const awaitingOutcome = pipeline.filter(r => r.status === "connect_sent" || r.status === "message_sent");
+  const CHECK_STATUS_PROMPT = "Check outreach status for the Mining BD Platform project: query Supabase outreach_queue for status in ('connect_sent','message_sent'), then for each one live via Claude in Chrome, check LinkedIn for that contact's real current state — are you now connected (1st degree / no longer shows \"Pending\" in My Network > Invitations), and has the contact replied to your message. Update each row in Supabase: set status to 'connected' if the connection is now accepted but there's no reply yet, 'replied' if they've messaged back, or leave the row as-is if it's genuinely still pending. Skip anything ambiguous rather than guessing, and give me a short summary of what changed at the end.";
+  const checkStatusUrl = "claude://claude.ai/new?q=" + encodeURIComponent(CHECK_STATUS_PROMPT);
   const renderPipelineCard = row => {
     const meta = OUTREACH_PIPELINE_STATUS[row.status] || {
       label: row.status,
@@ -2224,22 +2232,43 @@ function OutreachQueue({
     style: {
       marginBottom: "32px"
     }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      flexWrap: "wrap",
+      gap: "10px",
+      marginBottom: "4px"
+    }
   }, /*#__PURE__*/React.createElement("h2", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
       fontSize: "19px",
       color: "#EDE9E1",
-      margin: "0 0 4px 0"
+      margin: 0
     }
-  }, "Pipeline"), /*#__PURE__*/React.createElement("div", {
+  }, "Pipeline"), canEdit && awaitingOutcome.length > 0 && /*#__PURE__*/React.createElement("a", {
+    href: checkStatusUrl,
+    style: {
+      background: "none",
+      border: "1px solid #9CC3D4",
+      color: "#9CC3D4",
+      borderRadius: "4px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      textDecoration: "none",
+      display: "inline-block"
+    }
+  }, `Check outreach status (${awaitingOutcome.length}) ↗`)), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "12.5px",
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "Everyone you've reached out to. Update the status yourself as things move — LinkedIn doesn't tell us."), pipeline.map(renderPipelineCard)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Everyone you've reached out to. Update the status yourself as things move, or use \"Check outreach status\" to open a live Claude session that checks LinkedIn for the ", awaitingOutcome.length, " still-pending rows and updates them for you — LinkedIn doesn't push status changes to us on its own."), pipeline.map(renderPipelineCard)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: "8px"
     }
