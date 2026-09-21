@@ -704,7 +704,15 @@ function ReportContactRow({
       borderRadius: "3px",
       padding: "1px 5px"
     }
-  }, "Meeting: ", formatShortDate(row.meeting_date))), /*#__PURE__*/React.createElement("div", {
+  }, "Meeting: ", formatShortDate(row.meeting_date)), row.status === "ready_to_send" && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#C1592E",
+      fontSize: "10.5px",
+      border: "1px solid #C1592E",
+      borderRadius: "3px",
+      padding: "1px 5px"
+    }
+  }, "Ready to send")), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "12px",
@@ -802,9 +810,14 @@ function NextUpSection({
   onOpenItem,
   onTrigger,
   triggerStatus,
+  onStartOutreach,
+  startOutreachStatus,
+  startOutreachCount,
   canEdit
 }) {
   const btnLabel = triggerStatus === "starting" ? "Starting…" : triggerStatus === "started" ? "Started — check back in ~30-60 min" : triggerStatus === "error" ? "Couldn't start, try again" : "Find more candidates";
+  const startLabel = startOutreachStatus === "flagging" ? "Flagging…" : startOutreachStatus === "flagged" ? `Flagged ${startOutreachCount} for sending ✓` : startOutreachStatus === "error" ? "Couldn't flag, try again" : startOutreachStatus === "none" ? "Nothing ready to flag" : "Start outreach";
+  const startDisabled = startOutreachStatus === "flagging" || startOutreachStatus === "flagged" || startOutreachStatus === "none";
   return /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "36px"
@@ -833,7 +846,25 @@ function NextUpSection({
       fontWeight: 400,
       marginLeft: "8px"
     }
-  }, rows.length)), canEdit && /*#__PURE__*/React.createElement("button", {
+  }, rows.length)), canEdit && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "8px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onStartOutreach,
+    disabled: startDisabled,
+    style: {
+      background: "none",
+      border: "1px solid #6B8F6B",
+      color: startOutreachStatus === "flagged" ? "#7C9A5B" : startOutreachStatus === "flagging" || startOutreachStatus === "none" ? "#5E6268" : "#6B8F6B",
+      borderRadius: "4px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      cursor: startDisabled ? "default" : "pointer"
+    }
+  }, startLabel), /*#__PURE__*/React.createElement("button", {
     onClick: onTrigger,
     disabled: triggerStatus === "starting" || triggerStatus === "started",
     style: {
@@ -845,13 +876,13 @@ function NextUpSection({
       padding: "5px 10px",
       cursor: triggerStatus === "starting" || triggerStatus === "started" ? "default" : "pointer"
     }
-  }, btnLabel)), /*#__PURE__*/React.createElement("div", {
+  }, btnLabel))), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "13px",
       marginBottom: "12px"
     }
-  }, "Top of the queue by chase priority (easiest to reach + best engineering fit first), across everything not yet sent — found, queued, and approved. \"Find more candidates\" runs a fresh pass over the board for new fits (drafts only, nothing gets sent automatically — new ones land in \"Found, awaiting your review\" below); it usually takes 30-60 minutes."), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "Top of the queue by chase priority (easiest to reach + best engineering fit first), across everything not yet sent — found, queued, and approved. \"Start outreach\" flags the ones below with a usable LinkedIn profile as ready — nothing gets sent by itself (LinkedIn has no send API), it just tells me to bring it up for a live sending pass next time we talk. \"Find more candidates\" runs a fresh pass over the board for new fits (drafts only — new ones land in \"Found, awaiting your review\" below); it usually takes 30-60 minutes."), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "13px",
@@ -888,6 +919,8 @@ function BdReportPage({
   const [error, setError] = useState(null);
   const [chaseByItem, setChaseByItem] = useState({});
   const [triggerStatus, setTriggerStatus] = useState("idle");
+  const [startOutreachStatus, setStartOutreachStatus] = useState("idle");
+  const [startOutreachCount, setStartOutreachCount] = useState(0);
   useEffect(() => {
     async function load() {
       const {
@@ -1019,6 +1052,37 @@ function BdReportPage({
   const meetingActions = row => /*#__PURE__*/React.createElement(MeetingDateForm, {
     onSave: dateStr => markMeetingBooked(row, dateStr)
   });
+  // "Start outreach" (2026-09-21, per Greg): flags the sendable rows in
+  // "Next up this week" so the actual send happens in a live session with
+  // him watching, rather than pretending a button can make LinkedIn
+  // connection requests fire by itself (there's no API for that, and
+  // scripting it directly would risk his account). Only flags rows that
+  // genuinely have a usable profile to send to (excludes needs_profile);
+  // reuses the outreach_queue.status = 'ready_to_send' value that already
+  // existed in the schema rather than inventing new state, and prepared_at
+  // as the flagged-at timestamp (same field the Outreach tab already uses
+  // for "prepared"). A future session should check for ready_to_send rows
+  // at the start of any outreach-related work on this project - that is
+  // Greg's signal he wants a live sending pass.
+  const startOutreach = async () => {
+    const eligible = nextUp.filter(r => ["approved", "pending_review"].includes(r.status) && r.contact_linkedin_url);
+    if (!eligible.length) {
+      setStartOutreachStatus("none");
+      return;
+    }
+    setStartOutreachStatus("flagging");
+    try {
+      const now = new Date().toISOString();
+      await Promise.all(eligible.map(r => updateRow(r.id, {
+        status: "ready_to_send",
+        prepared_at: now
+      })));
+      setStartOutreachCount(eligible.length);
+      setStartOutreachStatus("flagged");
+    } catch (e) {
+      setStartOutreachStatus("error");
+    }
+  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#9A9DA2",
@@ -1073,6 +1137,9 @@ function BdReportPage({
     onOpenItem: onOpenItem,
     onTrigger: triggerRefill,
     triggerStatus: triggerStatus,
+    onStartOutreach: startOutreach,
+    startOutreachStatus: startOutreachStatus,
+    startOutreachCount: startOutreachCount,
     canEdit: canEdit
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Meetings booked",
@@ -1112,7 +1179,7 @@ function BdReportPage({
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Queued to reach out",
     accentColor: "#D8C889",
-    description: "Contact found and approved - next in line to be sent. Outreach happens live rather than on a fixed schedule, so this is effectively \"who's coming up.\"",
+    description: "Contact found and approved - next in line to be sent. Outreach happens live rather than on a fixed schedule, so this is effectively \"who's coming up.\" A \"Ready to send\" tag means it's been flagged via \"Start outreach\" above and is waiting on a live sending pass.",
     rows: queued,
     emptyText: "Nothing queued right now.",
     onOpenItem: onOpenItem
