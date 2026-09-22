@@ -807,6 +807,71 @@ function EmailBlockControl({
     }
   }, "Mark resolved")));
 }
+// Surfaces unacknowledged n8n production-workflow failures (Outreach Queue
+// Builder / main ingest pipeline) so a silent error can't hide again --
+// built 2026-09-22 after the "nothing lined up for outreach" incident, where
+// 3 real refill runs failed silently on depleted n8n Gateway LLM credits and
+// there was no way to know except the queue never filling. Rows land in
+// Supabase workflow_errors via the shared "BD Platform Error Notifier" n8n
+// workflow, wired as the errorWorkflow on both production workflows.
+function WorkflowErrorBanner({
+  errors,
+  canEdit,
+  onAcknowledge
+}) {
+  if (!errors || errors.length === 0) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "20px",
+      border: "1px solid #5C2A2A",
+      background: "#241616",
+      borderRadius: "4px",
+      overflow: "hidden"
+    }
+  }, errors.map((err, i) => /*#__PURE__*/React.createElement("div", {
+    key: err.id,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      gap: "12px",
+      padding: "10px 14px",
+      borderTop: i === 0 ? "none" : "1px solid #3A2020"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: "1 1 auto",
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#E9987A",
+      fontSize: "12.5px",
+      fontWeight: 600
+    }
+  }, `⚠ ${err.workflow_name || "Workflow"} failed`, err.node_name ? ` — ${err.node_name}` : "", err.occurred_at ? ` · ${new Date(err.occurred_at).toLocaleString()}` : ""), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#C9A9A0",
+      fontSize: "11.5px",
+      marginTop: "3px",
+      fontFamily: "'IBM Plex Mono', monospace",
+      wordBreak: "break-word"
+    }
+  }, err.error_message)), canEdit ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => onAcknowledge(err.id),
+    style: {
+      background: "none",
+      border: "1px solid #5C2A2A",
+      color: "#E9987A",
+      borderRadius: "3px",
+      fontSize: "11px",
+      padding: "4px 10px",
+      cursor: "pointer",
+      whiteSpace: "nowrap",
+      flexShrink: 0
+    }
+  }, "Dismiss") : null)));
+}
 // Manual "I already know who the right contact is" replacement, alongside
 // the live find-someone-else trigger for when Greg doesn't (2026-09-21).
 function ReplacementContactForm({
@@ -4336,6 +4401,25 @@ function Dashboard() {
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+  const [workflowErrors, setWorkflowErrors] = useState([]);
+  useEffect(() => {
+    async function loadWorkflowErrors() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("workflow_errors").select("*").eq("acknowledged", false).order("occurred_at", {
+        ascending: false
+      }).limit(10);
+      if (!error && data) setWorkflowErrors(data);
+    }
+    loadWorkflowErrors();
+  }, []);
+  const acknowledgeWorkflowError = async id => {
+    setWorkflowErrors(prev => prev.filter(e => e.id !== id));
+    await supabaseClient.from("workflow_errors").update({
+      acknowledged: true
+    }).eq("id", id);
+  };
   const [bidStatusMap, setBidStatusMap] = useState({});
   const [commentsIndex, setCommentsIndex] = useState({});
   useEffect(() => {
@@ -4873,7 +4957,11 @@ function Dashboard() {
       maxWidth: "1040px",
       margin: "0 auto"
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(WorkflowErrorBanner, {
+    errors: workflowErrors,
+    canEdit: canEdit,
+    onAcknowledge: acknowledgeWorkflowError
+  }), /*#__PURE__*/React.createElement("div", {
     className: "bd-top-nav",
     style: {
       display: "flex",
