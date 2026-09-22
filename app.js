@@ -1340,6 +1340,7 @@ function BdReportPage({
   const pending = rows.filter(r => ["connect_sent", "message_sent"].includes(r.status)).sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
   const queued = rows.filter(r => ["approved", "ready_to_send"].includes(r.status)).sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
   const awaitingReview = rows.filter(r => ["pending_review", "needs_profile"].includes(r.status)).sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
+  const needsContactReport = rows.filter(r => r.status === "needs_contact").sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
   const declined = rows.filter(r => r.status === "declined");
   const sentThisWeek = rows.filter(r => r.connect_sent_at && new Date(r.connect_sent_at) >= weekAgo).length;
   const queuedThisWeek = rows.filter(r => r.queued_at && new Date(r.queued_at) >= weekAgo).length;
@@ -1464,6 +1465,10 @@ function BdReportPage({
     label: "Awaiting review",
     value: awaitingReview.length,
     color: "#9CC3D4"
+  }), /*#__PURE__*/React.createElement(ReportStat, {
+    label: "Needs a contact",
+    value: needsContactReport.length,
+    color: "#C79A6B"
   })), /*#__PURE__*/React.createElement(NextUpSection, {
     rows: nextUp,
     onOpenItem: onOpenItem,
@@ -1523,6 +1528,13 @@ function BdReportPage({
     description: "Contacts found but not yet approved or skipped.",
     rows: awaitingReview,
     emptyText: "Nothing waiting on review.",
+    onOpenItem: onOpenItem
+  }), /*#__PURE__*/React.createElement(ReportSection, {
+    title: "Found, needs a contact",
+    accentColor: "#C79A6B",
+    description: "Genuinely fresh opportunities, but monday only has a generic team/company contact - find a named person on the Outreach tab before outreach can be drafted.",
+    rows: needsContactReport,
+    emptyText: "Nothing waiting on a contact right now.",
     onOpenItem: onOpenItem
   }), declined.length > 0 && /*#__PURE__*/React.createElement(ReportSection, {
     title: "Declined",
@@ -1923,6 +1935,10 @@ const OUTREACH_STATUS_META = {
     label: "Ready to review",
     color: "#9CC3D4"
   },
+  needs_contact: {
+    label: "Needs a contact",
+    color: "#C79A6B"
+  },
   needs_profile: {
     label: "Needs a profile",
     color: "#E9987A"
@@ -2201,6 +2217,14 @@ function OutreachQueue({
     const prompt = `Find a better BD contact for the Mining BD Platform project. Opportunity: "${row.opportunity_name}" at ${row.company || "an unknown company"} (outreach_queue id ${row.id}, item_id ${row.item_id}). The previously queued contact, ${row.contact_name || "unknown"}${row.contact_role ? ` (${row.contact_role})` : ""}, was flagged by Greg as not the right person to reach out to for this specific project. Research live via Claude in Chrome (LinkedIn, the company's website, recent news) to find a more suitable contact - ideally someone in business development, project delivery, or a technical/commercial decision-making role for this project, not just the most senior person at the parent company. Tell me who you found and why before updating anything, and confirm with me if you're not confident it's a genuinely better fit. Once confirmed, update outreach_queue row id ${row.id} in Supabase: set contact_name, contact_role, contact_linkedin_url to the new contact, contact_rejected to false, and status to 'pending_review'.`;
     return "claude://claude.ai/new?q=" + encodeURIComponent(prompt);
   };
+  // needs_contact rows never had an individual at all (monday only shows a
+  // generic team/company name, in row.contact_name) - same live-research
+  // ask as findDifferentContactUrl, worded for "find one" rather than
+  // "replace this one".
+  const findContactUrl = row => {
+    const prompt = `Find a BD contact for the Mining BD Platform project. Opportunity: "${row.opportunity_name}" at ${row.company || "an unknown company"} (outreach_queue id ${row.id}, item_id ${row.item_id}). Monday.com only has a generic contact on file for this one: "${row.contact_name || "unknown"}" - no named individual yet. Research live via Claude in Chrome (LinkedIn, the company's website, recent news) to find a specific person to reach out to - ideally someone in business development, project delivery, or a technical/commercial decision-making role for this project. Tell me who you found and why before updating anything, and confirm with me if you're not confident. Once confirmed, update outreach_queue row id ${row.id} in Supabase: set contact_name, contact_role, contact_linkedin_url to the new contact, contact_is_individual to true, and status to 'pending_review'.`;
+    return "claude://claude.ai/new?q=" + encodeURIComponent(prompt);
+  };
   if (error) return /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#C1592E",
@@ -2214,11 +2238,18 @@ function OutreachQueue({
     }
   }, "Loading…");
   const pendingReview = rows.filter(r => r.status === "pending_review").sort(byChaseThenQueued);
+  // "needs_contact" (2026-09-22, per Greg): fresh opportunities where monday
+  // only has a generic team/company contact, not a named individual - these
+  // used to just get silently dropped by the Outreach Queue Builder rather
+  // than surfacing anywhere. Reuses the exact same replacement-contact form
+  // and live-research link already built for "not the right contact" below,
+  // since the actual task (find a named person, save it) is identical.
+  const needsContact = rows.filter(r => r.status === "needs_contact").sort(byChaseThenQueued);
   const needsProfile = rows.filter(r => r.status === "needs_profile" && !r.contact_rejected).sort(byChaseThenQueued);
   const needsNewContact = rows.filter(r => r.contact_rejected).sort(byChaseThenQueued);
   const readyToSend = rows.filter(r => r.status === "ready_to_send");
   const pipeline = rows.filter(r => Object.prototype.hasOwnProperty.call(OUTREACH_PIPELINE_STATUS, r.status)).sort((a, b) => OUTREACH_PIPELINE_STATUS[a.status].rank - OUTREACH_PIPELINE_STATUS[b.status].rank);
-  const actioned = rows.filter(r => !["pending_review", "needs_profile", "ready_to_send"].includes(r.status) && !Object.prototype.hasOwnProperty.call(OUTREACH_PIPELINE_STATUS, r.status));
+  const actioned = rows.filter(r => !["pending_review", "needs_profile", "needs_contact", "ready_to_send"].includes(r.status) && !Object.prototype.hasOwnProperty.call(OUTREACH_PIPELINE_STATUS, r.status));
   const cardActions = row => /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -2588,13 +2619,73 @@ function OutreachQueue({
       textDecoration: "none"
     }
   }, "Find a different contact ↗"));
+  const renderNeedsContactCard = row => /*#__PURE__*/React.createElement("div", {
+    key: row.id,
+    style: {
+      border: "1px solid #23272D",
+      borderRadius: "4px",
+      background: "#181B20",
+      padding: "14px 16px",
+      marginBottom: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      flexWrap: "wrap",
+      gap: "6px"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    onClick: () => onOpenItem(row.item_id),
+    style: {
+      color: "#9CC3D4",
+      cursor: "pointer",
+      fontSize: "14px"
+    }
+  }, row.opportunity_name), row.company && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#71767D",
+      fontSize: "13px"
+    }
+  }, " — ", row.company))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "8px",
+      fontSize: "12.5px",
+      color: "#71767D"
+    }
+  }, "Monday shows: ", row.contact_name || "no contact on file"), row.classification_reason && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "11.5px",
+      fontStyle: "italic",
+      marginTop: "6px"
+    }
+  }, row.classification_reason), /*#__PURE__*/React.createElement(ReplacementContactForm, {
+    row: row,
+    canEdit: canEdit,
+    onSave: saveReplacementContact
+  }), canEdit && /*#__PURE__*/React.createElement("a", {
+    href: findContactUrl(row),
+    style: {
+      display: "inline-block",
+      marginTop: "10px",
+      background: "none",
+      border: "1px solid #9CC3D4",
+      color: "#9CC3D4",
+      borderRadius: "4px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      textDecoration: "none"
+    }
+  }, "Find a contact ↗"));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "13px",
       marginBottom: "20px"
     }
-  }, `${pendingReview.length} ready to review · ${needsProfile.length} waiting on a LinkedIn profile · ${needsNewContact.length} need a different contact · ${readyToSend.length} ready to send · ${pipeline.length} in pipeline`), pendingReview.length === 0 && needsProfile.length === 0 && needsNewContact.length === 0 && readyToSend.length === 0 && pipeline.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, `${pendingReview.length} ready to review · ${needsContact.length} need a contact found · ${needsProfile.length} waiting on a LinkedIn profile · ${needsNewContact.length} need a different contact · ${readyToSend.length} ready to send · ${pipeline.length} in pipeline`), pendingReview.length === 0 && needsContact.length === 0 && needsProfile.length === 0 && needsNewContact.length === 0 && readyToSend.length === 0 && pipeline.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "13px",
@@ -2612,7 +2703,26 @@ function OutreachQueue({
       color: "#EDE9E1",
       margin: "0 0 12px 0"
     }
-  }, "Ready to review"), pendingReview.map(row => renderCard(row, cardActions))), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Ready to review"), pendingReview.map(row => renderCard(row, cardActions))), needsContact.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: "32px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "19px",
+      color: "#EDE9E1",
+      margin: "0 0 4px 0"
+    }
+  }, "Needs a contact"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#71767D",
+      fontSize: "12.5px",
+      fontStyle: "italic",
+      marginBottom: "12px"
+    }
+  }, "Genuinely fresh opportunity, but monday only has a generic team/company contact - find a named person before outreach can be drafted."), needsContact.map(renderNeedsContactCard)), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "32px"
     }
