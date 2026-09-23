@@ -283,9 +283,9 @@ function chaseScoreFromParts(npiPotential, ownerAccessibility, bdScore) {
 }
 // Fetches npi_potential/owner_accessibility/bd_score for a set of item_ids
 // and returns a { item_id: chaseScore } map, using the shared formula above.
-// BD Report, the Outreach Queue, and Week in Focus all need this to rank (or
-// filter) outreach_queue rows against the same "best placed to chase" order
-// as the main Pipeline view.
+// BD Report and the Outreach Queue both need this to rank outreach_queue
+// rows against the same "best placed to chase" order as the main Pipeline
+// view.
 async function fetchChaseScoreByItemId(itemIds) {
   if (!itemIds || !itemIds.length) return {};
   const {
@@ -540,29 +540,29 @@ function ReviewSection({
 // than a requirement to see new ones at all.
 const INGEST_REFRESH_WEBHOOK_URL = "https://newcomb.app.n8n.cloud/webhook/ingest-refresh";
 const INGEST_REFRESH_KEY = "U8mSNyORLVXt3l-edDAfV57ls46LMB6y";
-function PipelineTrend({
+// Monday-start week boundary, same convention outreach_queue.batch_week
+// already uses elsewhere in this app -- keeps "which week is this" answered
+// consistently across features.
+function mondayOf(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+}
+// New-opportunities-per-week chart (2026-09-23, per Greg, replacing the old
+// "Pipeline over time" daily tier-count chart when Week in Focus was
+// removed): "a chart that shows new opps totaled each week." Buckets
+// directly from live opportunity data (createdAt), not from
+// pipeline_snapshots -- that table only tracks a daily running total, which
+// can't distinguish "genuinely new this week" from net changes (removals,
+// corrections), so it's the wrong source for this question. Also carries
+// the manual ingest-refresh trigger the old chart had, since nothing else
+// in the app exposes it.
+function NewOpportunitiesTrend({
+  items,
   canEdit
 }) {
-  const [snapshots, setSnapshots] = useState(null);
   const [refreshStatus, setRefreshStatus] = useState("idle");
-  useEffect(() => {
-    async function load() {
-      // Fetch the most recent 12 snapshots, not the oldest 12 - the prior
-      // `.order(ascending:true).limit(12)` picked up the earliest 12 rows in
-      // the table, which is why this chart looked stuck in early September
-      // even though the backend has in fact been writing a snapshot every
-      // single day. Fixed 2026-09-21: fetch newest-first, then reverse for
-      // left-to-right chronological display.
-      const {
-        data,
-        error
-      } = await supabaseClient.from("pipeline_snapshots").select("*").order("snapshot_date", {
-        ascending: false
-      }).limit(12);
-      setSnapshots(error ? [] : (data || []).slice().reverse());
-    }
-    load();
-  }, []);
   const triggerRefresh = async () => {
     setRefreshStatus("starting");
     try {
@@ -593,21 +593,28 @@ function PipelineTrend({
       cursor: refreshDisabled ? "default" : "pointer"
     }
   }, refreshLabel);
-  if (snapshots === null) return null;
-  if (snapshots.length < 2) {
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginBottom: "32px"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: "#5E6268",
-        fontSize: "13px",
-        marginBottom: "10px"
-      }
-    }, "Pipeline trend will build up here as this page gets opened after each daily refresh."), refreshButton);
+  const WEEKS = 10;
+  const thisMonday = mondayOf(new Date());
+  const buckets = [];
+  for (let i = WEEKS - 1; i >= 0; i--) {
+    buckets.push({
+      weekStart: new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7),
+      count: 0
+    });
   }
-  const max = Math.max(...snapshots.map(s => s.total_count || 0), 1);
+  (items || []).forEach(item => {
+    if (!item.createdAt) return;
+    const d = new Date(item.createdAt);
+    if (isNaN(d.getTime())) return;
+    const wk = mondayOf(d).getTime();
+    const bucket = buckets.find(b => b.weekStart.getTime() === wk);
+    if (bucket) bucket.count++;
+  });
+  const max = Math.max(...buckets.map(b => b.count), 1);
+  const weekLabel = d => d.toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short"
+  });
   return /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "36px"
@@ -629,22 +636,22 @@ function PipelineTrend({
       color: "#EDE9E1",
       margin: 0
     }
-  }, "Pipeline over time"), refreshButton), /*#__PURE__*/React.createElement("div", {
+  }, "New opportunities per week"), refreshButton), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
       fontSize: "13px",
       marginBottom: "14px"
     }
-  }, "Total tracked opportunities at each daily snapshot. New opportunities are ingested automatically once a day from MINEDEX, EPA WA and Mining.com — \"Refresh opportunities now\" runs that same pass on demand rather than waiting for the clock."), /*#__PURE__*/React.createElement("div", {
+  }, "New opportunities landing in the pipeline, by week (Monday to Sunday). Ingested automatically once a day from MINEDEX, EPA WA and Mining.com — \"Refresh opportunities now\" runs that same pass on demand rather than waiting for the clock."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "flex-end",
       gap: "6px",
       height: "70px"
     }
-  }, snapshots.map(s => /*#__PURE__*/React.createElement("div", {
-    key: s.id,
-    title: `${s.snapshot_date}: ${s.total_count} total`,
+  }, buckets.map(b => /*#__PURE__*/React.createElement("div", {
+    key: b.weekStart.toISOString(),
+    title: `Week of ${weekLabel(b.weekStart)}: ${b.count} new`,
     style: {
       flex: 1,
       display: "flex",
@@ -657,7 +664,7 @@ function PipelineTrend({
     style: {
       width: "100%",
       maxWidth: "28px",
-      height: `${(s.total_count || 0) / max * 100}%`,
+      height: `${b.count / max * 100}%`,
       background: "#4F7C90",
       borderRadius: "2px 2px 0 0",
       minHeight: "2px"
@@ -673,26 +680,22 @@ function PipelineTrend({
       color: "#5E6268",
       fontSize: "11px"
     }
-  }, new Date(snapshots[0].snapshot_date).toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short"
-  })), /*#__PURE__*/React.createElement("span", {
+  }, weekLabel(buckets[0].weekStart)), /*#__PURE__*/React.createElement("span", {
     style: {
       color: "#5E6268",
       fontSize: "11px"
     }
-  }, new Date(snapshots[snapshots.length - 1].snapshot_date).toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short"
-  }))));
+  }, weekLabel(buckets[buckets.length - 1].weekStart))));
 }
 // BD Report (2026-09-21, per Greg): a status report on outreach itself —
 // who's been contacted, who's connected, who's replied, who said yes to a
-// meeting, who's still pending, who's queued to go out next — as distinct
-// from "Week in Focus", which tracks opportunities (tasks due, stale
-// reviews), not people. Reads straight from outreach_queue; each row
-// already carries its own opportunity_name/company/contact fields so no
-// join against `opportunities` is needed, same as the Outreach Queue tab.
+// meeting, who's still pending, who's queued to go out next. Reads straight
+// from outreach_queue; each row already carries its own
+// opportunity_name/company/contact fields so no join against `opportunities`
+// is needed, same as the Outreach Queue tab. As of 2026-09-23 this page also
+// carries the "New opportunities per week" chart and "New this week" list
+// (moved here from the removed "Week in Focus" tab, per Greg) -- those two
+// read `items` directly rather than outreach_queue.
 function ReportStat({
   label,
   value,
@@ -1391,6 +1394,7 @@ function NextUpSection({
 const OUTREACH_REFILL_WEBHOOK_URL = "https://newcomb.app.n8n.cloud/webhook/outreach-refill";
 const OUTREACH_REFILL_KEY = "GY9ur4YbV2c4jt9WibHIDBGGKEXt_-8r";
 function BdReportPage({
+  items,
   onOpenItem,
   canEdit
 }) {
@@ -1473,6 +1477,11 @@ function BdReportPage({
     }, "Loading report…");
   }
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  // "New this week" (moved here from the removed Week in Focus tab, per
+  // Greg, 2026-09-23) - reads straight from `items` (opportunities), not
+  // outreach_queue, since these are brand-new project records that may not
+  // have an outreach_queue row yet at all.
+  const newThisWeek = (items || []).filter(i => i.createdAt && new Date(i.createdAt) >= weekAgo);
   const meetingBooked = rows.filter(r => r.status === "meeting_booked").sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
   const replied = rows.filter(r => r.status === "replied").sort((a, b) => new Date(outreachLastActivity(b) || 0) - new Date(outreachLastActivity(a) || 0));
   // Oldest activity first - these are the ones due a follow-up touch soonest.
@@ -1571,7 +1580,15 @@ function BdReportPage({
     style: {
       color: "#5E6268"
     }
-  }, "Project data (new opportunities, stage changes) syncs automatically every day around midnight (Perth time). New outreach candidates only get found when \"Find more candidates\" below is run - not on a fixed schedule.")), /*#__PURE__*/React.createElement("div", {
+  }, "Project data (new opportunities, stage changes) syncs automatically every day around midnight (Perth time). New outreach candidates only get found when \"Find more candidates\" below is run - not on a fixed schedule.")), /*#__PURE__*/React.createElement(NewOpportunitiesTrend, {
+    items: items,
+    canEdit: canEdit
+  }), /*#__PURE__*/React.createElement(ReviewSection, {
+    title: "New this week",
+    description: "Opportunities added to the board in the last 7 days.",
+    items: newThisWeek,
+    emptyText: "Nothing new landed this week."
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
@@ -1684,165 +1701,6 @@ function BdReportPage({
     emptyText: "",
     onOpenItem: onOpenItem
   }));
-}
-function FocusPage({
-  items,
-  onOpenItem,
-  bidStatusMap,
-  canEdit
-}) {
-  const [tasks, setTasks] = useState(null);
-  useEffect(() => {
-    async function load() {
-      const {
-        data,
-        error
-      } = await supabaseClient.from("tasks").select("*").order("due_date", {
-        ascending: true
-      });
-      setTasks(error ? [] : data);
-    }
-    load();
-  }, []);
-  // Anything already in outreach_queue - in ANY status - is already being
-  // worked on the Outreach/BD Report tabs, so it's excluded from "Best
-  // placed to chase" below rather than shown again here. Before this
-  // (2026-09-23), this list ranked the whole pipeline with no idea what was
-  // already queued, so it would happily show something Greg had already
-  // sent a connection request to right alongside genuinely untouched
-  // opportunities - and conversely couldn't be trusted as "next to queue"
-  // since it didn't check what was already queued either. Fetched as a
-  // plain id set (not scores - items here already carry chaseScore from
-  // Dashboard's effectiveItems) so this stays a single lightweight query.
-  const [queuedItemIds, setQueuedItemIds] = useState(null);
-  useEffect(() => {
-    async function load() {
-      const {
-        data,
-        error
-      } = await supabaseClient.from("outreach_queue").select("item_id");
-      setQueuedItemIds(error ? new Set() : new Set((data || []).map(r => r.item_id)));
-    }
-    load();
-  }, []);
-  const now = new Date();
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const todayStr = now.toISOString().split("T")[0];
-  const in7Str = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const isDeadBid = i => normalizeBidStatus(bidStatusMap[i.id]) === "Passed";
-  const itemsById = {};
-  items.forEach(i => {
-    itemsById[i.id] = i;
-  });
-  const newThisWeek = items.filter(i => new Date(i.createdAt) >= weekAgo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const focus = items.filter(i => (i.tier === "Prime Window" || i.tier === "Live Window") && !isDeadBid(i) && !(queuedItemIds && queuedItemIds.has(i.id))).sort((a, b) => b.chaseScore - a.chaseScore);
-  const stale = items.filter(i => (i.tier === "Prime Window" || i.tier === "Live Window") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo) && !isDeadBid(i)).sort((a, b) => b.score - a.score).slice(0, 12);
-  const overdueTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date < todayStr) : [];
-  const dueThisWeekTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date >= todayStr && t.due_date <= in7Str) : [];
-  const itemsWithNoTasks = tasks ? items.filter(i => !tasks.some(t => t.item_id === i.id)).length : 0;
-  const TaskRow = ({
-    task
-  }) => {
-    const item = itemsById[task.item_id];
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "10px 14px",
-        borderTop: "1px solid #23272D"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        minWidth: 0
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: "#EDE9E1",
-        fontSize: "13.5px"
-      }
-    }, task.text), /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: "#71767D",
-        fontSize: "12px",
-        marginTop: "2px"
-      }
-    }, item ? /*#__PURE__*/React.createElement("span", {
-      onClick: () => onOpenItem(item.id),
-      style: {
-        color: "#9CC3D4",
-        cursor: "pointer"
-      }
-    }, item.name) : "Unknown opportunity")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: "#E9987A",
-        fontSize: "12px",
-        flexShrink: 0,
-        marginLeft: "12px"
-      }
-    }, new Date(task.due_date).toLocaleDateString("en-AU", {
-      day: "numeric",
-      month: "short"
-    })));
-  };
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PipelineTrend, {
-    canEdit: canEdit
-  }), tasks !== null && (overdueTasks.length > 0 || dueThisWeekTasks.length > 0) && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: "36px"
-    }
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontFamily: "'Fraunces', serif",
-      fontWeight: 600,
-      fontSize: "19px",
-      color: "#E9987A",
-      margin: "0 0 4px 0"
-    }
-  }, "Tasks due"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: "#71767D",
-      fontSize: "13px",
-      marginBottom: "12px"
-    }
-  }, "Overdue and due-this-week tasks across the whole pipeline."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      border: "1px solid #23272D",
-      borderRadius: "4px",
-      overflow: "hidden"
-    }
-  }, overdueTasks.map(t => /*#__PURE__*/React.createElement(TaskRow, {
-    key: t.id,
-    task: t
-  })), dueThisWeekTasks.map(t => /*#__PURE__*/React.createElement(TaskRow, {
-    key: t.id,
-    task: t
-  })))), /*#__PURE__*/React.createElement(ReviewSection, {
-    title: "New this week",
-    description: "Opportunities added to the board in the last 7 days.",
-    items: newThisWeek,
-    emptyText: "Nothing new landed this week."
-  }), /*#__PURE__*/React.createElement(ReviewSection, {
-    title: "Best next candidates for outreach",
-    description: "Prime Window and Live Window opportunities not yet in the outreach queue, ranked by Owner Accessibility + NPI Potential combined (easy-to-reach and real engineering scope ranks top), with BD score as a tie-break. Once something's queued it moves to the Outreach and BD Report tabs and drops off this list.",
-    items: focus,
-    emptyText: "Everything in Prime/Live Window is already in the outreach queue."
-  }), /*#__PURE__*/React.createElement(ReviewSection, {
-    title: "Needs a second look",
-    description: "Prime Window and Live Window opportunities that haven't been reviewed in 30+ days.",
-    items: stale,
-    emptyText: "Everything's been reviewed recently."
-  }), tasks !== null && itemsWithNoTasks > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      border: "1px solid #2C3138",
-      borderRadius: "4px",
-      padding: "16px 18px",
-      color: "#9A9DA2",
-      fontSize: "13px",
-      lineHeight: 1.6
-    }
-  }, itemsWithNoTasks, " of ", items.length, " opportunities have no tasks set. Add a task with a due date on an opportunity to have it show up here when it's due."));
 }
 const TIER_MARKER_COLORS = {
   "Prime Window": "#E9987A",
@@ -5308,20 +5166,6 @@ function Dashboard() {
       marginBottom: "-13px"
     }
   }, "Pipeline"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setView("focus"),
-    style: {
-      background: "none",
-      border: "none",
-      cursor: "pointer",
-      padding: 0,
-      color: view === "focus" ? "#EDE9E1" : "#71767D",
-      fontSize: "13px",
-      fontWeight: 500,
-      borderBottom: view === "focus" ? "2px solid #C1592E" : "2px solid transparent",
-      paddingBottom: "12px",
-      marginBottom: "-13px"
-    }
-  }, "Week in Focus"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setView("comments"),
     style: {
       background: "none",
@@ -5388,20 +5232,8 @@ function Dashboard() {
       margin: "0 0 28px 0"
     }
   }, "BD Report"), /*#__PURE__*/React.createElement(BdReportPage, {
-    onOpenItem: openItemFromActions,
-    canEdit: canEdit
-  })) : view === "focus" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
-    style: {
-      fontFamily: "'Fraunces', serif",
-      fontWeight: 600,
-      fontSize: "28px",
-      color: "#EDE9E1",
-      margin: "0 0 28px 0"
-    }
-  }, "Week in Focus"), /*#__PURE__*/React.createElement(FocusPage, {
     items: effectiveItems,
     onOpenItem: openItemFromActions,
-    bidStatusMap: bidStatusMap,
     canEdit: canEdit
   })) : view === "comments" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
