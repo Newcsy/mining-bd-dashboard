@@ -247,6 +247,45 @@ function relativeDayLabel(dateStr, verb) {
   if (days === 1) return `${verb} yesterday`;
   return `${verb} ${days}d ago`;
 }
+// Shared "best placed to chase" scoring (formula from 2026-09-18; pulled into
+// one place 2026-09-23). Owner Accessibility + NPI Potential combined is the
+// primary key (easy-to-reach AND real engineering scope ranks top),
+// multiplied up so it always dominates BD Score as the tie-break. Used by
+// the main Pipeline view (effectiveItems, below), BD Report, and the
+// Outreach Queue so all three agree on one order -- this formula used to be
+// copy-pasted three times and had already drifted out of sync once (see the
+// 2026-09-22 ranking-fix digest).
+function chaseScoreFromParts(npiPotential, ownerAccessibility, bdScore) {
+  const npiSub = {
+    High: 20,
+    Medium: 10,
+    Low: 0
+  }[npiPotential] ?? 5;
+  const accessSub = {
+    High: 10,
+    Medium: 5,
+    Low: 0
+  }[ownerAccessibility] ?? 3;
+  return (npiSub + accessSub) * 1000 + (Number(bdScore) || 0);
+}
+// Fetches npi_potential/owner_accessibility/bd_score for a set of item_ids
+// and returns a { item_id: chaseScore } map, using the shared formula above.
+// BD Report, the Outreach Queue, and Week in Focus all need this to rank (or
+// filter) outreach_queue rows against the same "best placed to chase" order
+// as the main Pipeline view.
+async function fetchChaseScoreByItemId(itemIds) {
+  if (!itemIds || !itemIds.length) return {};
+  const {
+    data,
+    error
+  } = await supabaseClient.from("opportunities").select("item_id, npi_potential, owner_accessibility, bd_score").in("item_id", itemIds);
+  if (error || !data) return {};
+  const byItem = {};
+  for (const o of data) {
+    byItem[o.item_id] = chaseScoreFromParts(o.npi_potential, o.owner_accessibility, o.bd_score);
+  }
+  return byItem;
+}
 function companyLinkedInSearchUrl(item) {
   const company = item.company || item.name;
   return `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(company)}`;
@@ -1261,28 +1300,7 @@ function BdReportPage({
       // already trusts elsewhere rather than inventing a new order.
       const itemIds = Array.from(new Set(scoped.map(r => r.item_id).filter(Boolean)));
       if (itemIds.length) {
-        const {
-          data: oppRows,
-          error: oppError
-        } = await supabaseClient.from("opportunities").select("item_id, npi_potential, owner_accessibility, bd_score").in("item_id", itemIds);
-        if (!oppError && oppRows) {
-          const byItem = {};
-          for (const o of oppRows) {
-            const npiSub = {
-              High: 20,
-              Medium: 10,
-              Low: 0
-            }[o.npi_potential] ?? 5;
-            const accessSub = {
-              High: 10,
-              Medium: 5,
-              Low: 0
-            }[o.owner_accessibility] ?? 3;
-            const bdScore = o.bd_score != null ? Number(o.bd_score) : 0;
-            byItem[o.item_id] = (npiSub + accessSub) * 1000 + bdScore;
-          }
-          setChaseByItem(byItem);
-        }
+        setChaseByItem(await fetchChaseScoreByItemId(itemIds));
       }
     }
     load();
@@ -1564,6 +1582,27 @@ function FocusPage({
     }
     load();
   }, []);
+  // Anything already in outreach_queue - in ANY status - is already being
+  // worked on the Outreach/BD Report tabs, so it's excluded from "Best
+  // placed to chase" below rather than shown again here. Before this
+  // (2026-09-23), this list ranked the whole pipeline with no idea what was
+  // already queued, so it would happily show something Greg had already
+  // sent a connection request to right alongside genuinely untouched
+  // opportunities - and conversely couldn't be trusted as "next to queue"
+  // since it didn't check what was already queued either. Fetched as a
+  // plain id set (not scores - items here already carry chaseScore from
+  // Dashboard's effectiveItems) so this stays a single lightweight query.
+  const [queuedItemIds, setQueuedItemIds] = useState(null);
+  useEffect(() => {
+    async function load() {
+      const {
+        data,
+        error
+      } = await supabaseClient.from("outreach_queue").select("item_id");
+      setQueuedItemIds(error ? new Set() : new Set((data || []).map(r => r.item_id)));
+    }
+    load();
+  }, []);
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -1575,7 +1614,7 @@ function FocusPage({
     itemsById[i.id] = i;
   });
   const newThisWeek = items.filter(i => new Date(i.createdAt) >= weekAgo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const focus = items.filter(i => (i.tier === "Prime Window" || i.tier === "Live Window") && !isDeadBid(i)).sort((a, b) => b.chaseScore - a.chaseScore);
+  const focus = items.filter(i => (i.tier === "Prime Window" || i.tier === "Live Window") && !isDeadBid(i) && !(queuedItemIds && queuedItemIds.has(i.id))).sort((a, b) => b.chaseScore - a.chaseScore);
   const stale = items.filter(i => (i.tier === "Prime Window" || i.tier === "Live Window") && (!i.lastReviewed || new Date(i.lastReviewed) < thirtyDaysAgo) && !isDeadBid(i)).sort((a, b) => b.score - a.score).slice(0, 12);
   const overdueTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date < todayStr) : [];
   const dueThisWeekTasks = tasks ? tasks.filter(t => !t.done && t.due_date && t.due_date >= todayStr && t.due_date <= in7Str) : [];
@@ -1663,10 +1702,10 @@ function FocusPage({
     items: newThisWeek,
     emptyText: "Nothing new landed this week."
   }), /*#__PURE__*/React.createElement(ReviewSection, {
-    title: "Best placed to chase now",
-    description: "Prime Window and Live Window opportunities ranked by Owner Accessibility + NPI Potential combined (easy-to-reach and real engineering scope ranks top), with BD score as a tie-break.",
+    title: "Best next candidates for outreach",
+    description: "Prime Window and Live Window opportunities not yet in the outreach queue, ranked by Owner Accessibility + NPI Potential combined (easy-to-reach and real engineering scope ranks top), with BD score as a tie-break. Once something's queued it moves to the Outreach and BD Report tabs and drops off this list.",
     items: focus,
-    emptyText: "No clear focus candidates right now."
+    emptyText: "Everything in Prime/Live Window is already in the outreach queue."
   }), /*#__PURE__*/React.createElement(ReviewSection, {
     title: "Needs a second look",
     description: "Prime Window and Live Window opportunities that haven't been reviewed in 30+ days.",
@@ -2107,28 +2146,7 @@ function OutreachQueue({
       // canonical version of this formula (2026-09-18).
       const itemIds = Array.from(new Set((data || []).map(r => r.item_id).filter(Boolean)));
       if (itemIds.length) {
-        const {
-          data: oppRows,
-          error: oppError
-        } = await supabaseClient.from("opportunities").select("item_id, npi_potential, owner_accessibility, bd_score").in("item_id", itemIds);
-        if (!oppError && oppRows) {
-          const byItem = {};
-          for (const o of oppRows) {
-            const npiSub = {
-              High: 20,
-              Medium: 10,
-              Low: 0
-            }[o.npi_potential] ?? 5;
-            const accessSub = {
-              High: 10,
-              Medium: 5,
-              Low: 0
-            }[o.owner_accessibility] ?? 3;
-            const bdScore = o.bd_score != null ? Number(o.bd_score) : 0;
-            byItem[o.item_id] = (npiSub + accessSub) * 1000 + bdScore;
-          }
-          setChaseByItem(byItem);
-        }
+        setChaseByItem(await fetchChaseScoreByItemId(itemIds));
       }
     }
     load();
@@ -2685,7 +2703,7 @@ function OutreachQueue({
       fontSize: "13px",
       marginBottom: "20px"
     }
-  }, `${pendingReview.length} ready to review · ${needsContact.length} need a contact found · ${needsProfile.length} waiting on a LinkedIn profile · ${needsNewContact.length} need a different contact · ${readyToSend.length} ready to send · ${pipeline.length} in pipeline`), pendingReview.length === 0 && needsContact.length === 0 && needsProfile.length === 0 && needsNewContact.length === 0 && readyToSend.length === 0 && pipeline.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, `${pendingReview.length} ready to review · ${needsContact.length} need a contact found · ${needsProfile.length} waiting on a LinkedIn profile · ${needsNewContact.length} need a different contact · ${readyToSend.length} ready to send · ${pipeline.length} sent, tracking replies`), pendingReview.length === 0 && needsContact.length === 0 && needsProfile.length === 0 && needsNewContact.length === 0 && readyToSend.length === 0 && pipeline.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "13px",
@@ -2800,7 +2818,7 @@ function OutreachQueue({
       color: "#EDE9E1",
       margin: 0
     }
-  }, "Pipeline"), canEdit && awaitingOutcome.length > 0 && /*#__PURE__*/React.createElement("a", {
+  }, "Sent — tracking replies"), canEdit && awaitingOutcome.length > 0 && /*#__PURE__*/React.createElement("a", {
     href: checkStatusUrl,
     style: {
       background: "none",
@@ -4823,9 +4841,7 @@ function Dashboard() {
       // replacing the old recency+relationship formula that had nothing to
       // do with chaseability and produced flat ties for same-day, same-score
       // opportunities.
-      const npiSub = { High: 20, Medium: 10, Low: 0 }[i.npiPotential] ?? 5;
-      const accessSub = { High: 10, Medium: 5, Low: 0 }[i.ownerAccessibility] ?? 3;
-      const chaseScore = (npiSub + accessSub) * 1000 + (i.score || 0);
+      const chaseScore = chaseScoreFromParts(i.npiPotential, i.ownerAccessibility, i.score);
       const algoWarmth = deriveWarmth(i);
       return {
         ...i,
