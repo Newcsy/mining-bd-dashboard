@@ -192,6 +192,19 @@ function buildLinkedInDraft(item, senderName) {
   const context = item.trigger ? ` (${item.trigger.slice(0, 60)})` : "";
   return `${base}${context} and wanted to connect. I work on NPI and engineering delivery for mining projects in ${item.state}.`.slice(0, 300);
 }
+// A rough starter draft for outreach_queue rows whose contact was found
+// manually (via the "Needs a contact"/"Needs a different contact"
+// replacement form) rather than through the n8n queue builder's LLM
+// drafting step -- those rows previously reached "Ready to review" with an
+// empty draft_message and nothing ever filled it (2026-09-23, per Greg:
+// "when it moves to ready for review, it no longer provides the outreach
+// message for review"). Same 300-char LinkedIn connection-note limit used
+// elsewhere in this app. Always editable afterwards in the normal textarea
+// -- this is a starting point, not a final draft.
+function buildOutreachQueueDraft(row) {
+  const stageLine = row.stage ? ` at the ${row.stage} stage` : "";
+  return `Hi — I noticed ${row.opportunity_name}${stageLine} and wanted to connect. I work on NPI and engineering delivery for mining and resources projects.`.slice(0, 300);
+}
 const GENERIC_CONTACT_PATTERNS = /\b(team|study|development|manager|group|department|tbd|unknown|n\/a|none|unclear|contact|committee|panel|commission|solutions|enquiries|council|authority|estate|program|programme)\b/i;
 function extractPersonName(contact) {
   return (contact || "").split("(")[0].trim();
@@ -992,6 +1005,115 @@ function ReplacementContactForm({
       cursor: canEdit ? "pointer" : "default"
     }
   }, "Save replacement"));
+}
+// Fixed list rather than free text so skips are actually aggregable later
+// (2026-09-23, per Greg: skip reasons "should have a feedback loop which
+// feeds into how we score and chase certain projects" -- e.g. if
+// NPI-High-scored opportunities keep getting skipped as "not real
+// engineering scope", that's a signal the classifier needs recalibrating).
+// This only captures the category + an optional note today; nothing reads
+// it back into scoring yet -- that's a separate, deliberately-deferred
+// piece of work since it needs its own design (see the project brief).
+const SKIP_REASON_CATEGORIES = ["Not real engineering/NPI scope", "Too small / early stage", "Wrong location or commodity focus", "Owner not accessible / no realistic entry point", "Competitor or incumbent already engaged", "Other"];
+function SkipWithReasonControl({
+  row,
+  canEdit,
+  onConfirm
+}) {
+  const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState("");
+  const [note, setNote] = useState("");
+  const [done, setDone] = useState(false);
+  if (done) {
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#5E6268",
+        fontSize: "11.5px"
+      }
+    }, "Skipped ✓");
+  }
+  if (!open) {
+    return /*#__PURE__*/React.createElement("button", {
+      onClick: () => setOpen(true),
+      disabled: !canEdit,
+      style: {
+        background: "none",
+        border: "none",
+        color: "#5E6268",
+        cursor: canEdit ? "pointer" : "default",
+        fontSize: "12.5px"
+      }
+    }, "Skip");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "8px",
+      display: "flex",
+      flexDirection: "column",
+      gap: "6px",
+      maxWidth: "420px"
+    }
+  }, /*#__PURE__*/React.createElement("select", {
+    value: category,
+    disabled: !canEdit,
+    onChange: e => setCategory(e.target.value),
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: category ? "#EDE9E1" : "#71767D",
+      fontSize: "12px",
+      padding: "5px 8px"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Why are you skipping this one?"), SKIP_REASON_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  }, c))), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    placeholder: "Add a note (optional)",
+    value: note,
+    disabled: !canEdit,
+    onChange: e => setNote(e.target.value),
+    style: {
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12px",
+      padding: "5px 8px"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    disabled: !canEdit || !category,
+    onClick: () => {
+      onConfirm(row, category, note.trim());
+      setDone(true);
+    },
+    style: {
+      background: "none",
+      border: "1px solid #5C2A2A",
+      color: "#E9987A",
+      borderRadius: "3px",
+      fontSize: "12px",
+      padding: "5px 12px",
+      cursor: canEdit && category ? "pointer" : "default"
+    }
+  }, "Confirm skip"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setOpen(false),
+    style: {
+      background: "none",
+      border: "none",
+      color: "#5E6268",
+      cursor: "pointer",
+      fontSize: "12px"
+    }
+  }, "Cancel")));
 }
 function ReportContactRow({
   row,
@@ -2168,10 +2290,26 @@ function OutreachQueue({
     status: "approved",
     reviewed_at: new Date().toISOString()
   });
-  const skip = row => {
+  // Reason capture (2026-09-23, per Greg): skip used to record nothing
+  // beyond the status flip, so there was no way to tell later *why* an
+  // opportunity was passed on -- and no way to notice a pattern (e.g. a lot
+  // of "not real engineering scope" skips on projects the algo scored
+  // NPI-High). category is a fixed list so it's actually aggregable; note is
+  // optional free text on top. Applies to every Skip action in this queue,
+  // not just "Needs a contact" -- most skips happen from "Ready to review",
+  // so limiting reason capture to one bucket would defeat the point.
+  const skipWithReason = (row, category, note) => {
     updateRow(row.id, {
       status: "skipped_by_user",
-      reviewed_at: new Date().toISOString()
+      reviewed_at: new Date().toISOString(),
+      skip_reason_category: category || null,
+      skip_reason: note || null,
+      // needsNewContact below is keyed on contact_rejected, not status -- a
+      // skip from that bucket without clearing this would leave the row
+      // stuck showing "Skipped" but never actually leaving the "Needs a
+      // different contact" section. Harmless to always clear it here since
+      // skipped_by_user is a terminal state either way.
+      contact_rejected: false
     });
     if (onBidStatusChange) onBidStatusChange(row.item_id, "Passed");
   };
@@ -2200,6 +2338,15 @@ function OutreachQueue({
       draft_message: value
     });
   };
+  // Local, instant starter draft (2026-09-23, per Greg: rows that get a
+  // contact via the manual replacement form used to reach "Ready to review"
+  // with no draft at all, since only the n8n queue builder's LLM step ever
+  // wrote one). No network round-trip, always available as a fallback even
+  // if Greg doesn't want to fire off a live research session just to get a
+  // starting point -- still fully editable afterwards.
+  const quickDraft = row => updateRow(row.id, {
+    draft_message: buildOutreachQueueDraft(row)
+  });
   // Contact reassignment + email-gate (2026-09-21, per Greg): flagging a
   // contact as wrong pulls it out of the normal review/send flow (back to
   // needs_profile, distinguished by contact_rejected so it doesn't get
@@ -2222,7 +2369,13 @@ function OutreachQueue({
       contact_linkedin_url: linkedin || null,
       contact_rejected: false,
       status: "pending_review",
-      reviewed_at: null
+      reviewed_at: null,
+      // Give it a starter draft right away rather than leaving Ready to
+      // review empty (2026-09-23) -- only backfills if there's nothing
+      // there yet, so a real draft from the "wrong contact" flow (still
+      // relevant to the same opportunity, just possibly stale) isn't
+      // clobbered.
+      draft_message: row.draft_message || buildOutreachQueueDraft(row)
     });
   };
   const toggleNeedsEmail = (row, value) => updateRow(row.id, {
@@ -2232,7 +2385,7 @@ function OutreachQueue({
     contact_email: email
   });
   const findDifferentContactUrl = row => {
-    const prompt = `Find a better BD contact for the Mining BD Platform project. Opportunity: "${row.opportunity_name}" at ${row.company || "an unknown company"} (outreach_queue id ${row.id}, item_id ${row.item_id}). The previously queued contact, ${row.contact_name || "unknown"}${row.contact_role ? ` (${row.contact_role})` : ""}, was flagged by Greg as not the right person to reach out to for this specific project. Research live via Claude in Chrome (LinkedIn, the company's website, recent news) to find a more suitable contact - ideally someone in business development, project delivery, or a technical/commercial decision-making role for this project, not just the most senior person at the parent company. Tell me who you found and why before updating anything, and confirm with me if you're not confident it's a genuinely better fit. Once confirmed, update outreach_queue row id ${row.id} in Supabase: set contact_name, contact_role, contact_linkedin_url to the new contact, contact_rejected to false, and status to 'pending_review'.`;
+    const prompt = `Find a better BD contact for the Mining BD Platform project. Opportunity: "${row.opportunity_name}" at ${row.company || "an unknown company"} (outreach_queue id ${row.id}, item_id ${row.item_id}). The previously queued contact, ${row.contact_name || "unknown"}${row.contact_role ? ` (${row.contact_role})` : ""}, was flagged by Greg as not the right person to reach out to for this specific project. Research live via Claude in Chrome (LinkedIn, the company's website, recent news) to find a more suitable contact - ideally someone in business development, project delivery, or a technical/commercial decision-making role for this project, not just the most senior person at the parent company. Tell me who you found and why before updating anything, and confirm with me if you're not confident it's a genuinely better fit. Once confirmed, update outreach_queue row id ${row.id} in Supabase: set contact_name, contact_role, contact_linkedin_url to the new contact, contact_rejected to false, status to 'pending_review', and draft_message to a short personalized LinkedIn connection note for this specific person and opportunity (under 300 characters, no generic filler).`;
     return "claude://claude.ai/new?q=" + encodeURIComponent(prompt);
   };
   // needs_contact rows never had an individual at all (monday only shows a
@@ -2240,7 +2393,7 @@ function OutreachQueue({
   // ask as findDifferentContactUrl, worded for "find one" rather than
   // "replace this one".
   const findContactUrl = row => {
-    const prompt = `Find a BD contact for the Mining BD Platform project. Opportunity: "${row.opportunity_name}" at ${row.company || "an unknown company"} (outreach_queue id ${row.id}, item_id ${row.item_id}). Monday.com only has a generic contact on file for this one: "${row.contact_name || "unknown"}" - no named individual yet. Research live via Claude in Chrome (LinkedIn, the company's website, recent news) to find a specific person to reach out to - ideally someone in business development, project delivery, or a technical/commercial decision-making role for this project. Tell me who you found and why before updating anything, and confirm with me if you're not confident. Once confirmed, update outreach_queue row id ${row.id} in Supabase: set contact_name, contact_role, contact_linkedin_url to the new contact, contact_is_individual to true, and status to 'pending_review'.`;
+    const prompt = `Find a BD contact for the Mining BD Platform project. Opportunity: "${row.opportunity_name}" at ${row.company || "an unknown company"} (outreach_queue id ${row.id}, item_id ${row.item_id}). Monday.com only has a generic contact on file for this one: "${row.contact_name || "unknown"}" - no named individual yet. Research live via Claude in Chrome (LinkedIn, the company's website, recent news) to find a specific person to reach out to - ideally someone in business development, project delivery, or a technical/commercial decision-making role for this project. Tell me who you found and why before updating anything, and confirm with me if you're not confident. Once confirmed, update outreach_queue row id ${row.id} in Supabase: set contact_name, contact_role, contact_linkedin_url to the new contact, contact_is_individual to true, status to 'pending_review', and draft_message to a short personalized LinkedIn connection note for this specific person and opportunity (under 300 characters, no generic filler).`;
     return "claude://claude.ai/new?q=" + encodeURIComponent(prompt);
   };
   if (error) return /*#__PURE__*/React.createElement("div", {
@@ -2271,6 +2424,8 @@ function OutreachQueue({
   const cardActions = row => /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
+      flexWrap: "wrap",
+      alignItems: "flex-start",
       gap: "8px",
       marginTop: "10px"
     }
@@ -2286,17 +2441,11 @@ function OutreachQueue({
       padding: "6px 14px",
       cursor: canEdit ? "pointer" : "default"
     }
-  }, "Approve"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => skip(row),
-    disabled: !canEdit,
-    style: {
-      background: "none",
-      border: "none",
-      color: "#5E6268",
-      cursor: canEdit ? "pointer" : "default",
-      fontSize: "12.5px"
-    }
-  }, "Skip"), /*#__PURE__*/React.createElement("button", {
+  }, "Approve"), /*#__PURE__*/React.createElement(SkipWithReasonControl, {
+    row: row,
+    canEdit: canEdit,
+    onConfirm: skipWithReason
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: () => notRightContact(row),
     disabled: !canEdit,
     style: {
@@ -2541,7 +2690,25 @@ function OutreachQueue({
     canEdit: canEdit,
     onToggle: toggleNeedsEmail,
     onSaveEmail: saveContactEmail
-  }), /*#__PURE__*/React.createElement("textarea", {
+  }), !row.draft_message && canEdit && /*#__PURE__*/React.createElement("button", {
+    onClick: () => quickDraft(row),
+    style: {
+      display: "block",
+      marginTop: "10px",
+      background: "none",
+      border: "1px solid #2C3138",
+      color: "#9CC3D4",
+      borderRadius: "3px",
+      fontSize: "12px",
+      padding: "5px 10px",
+      cursor: "pointer"
+    }
+  }, "Draft a message"), /*#__PURE__*/React.createElement("textarea", {
+    // Keyed on whether a draft exists so clicking "Draft a message" (which
+    // updates row.draft_message in state but this textarea is uncontrolled
+    // via defaultValue) forces a remount and actually shows the new text,
+    // rather than silently keeping the stale empty DOM node.
+    key: row.id + (row.draft_message ? "-draft" : "-empty"),
     defaultValue: row.draft_message || "",
     disabled: !canEdit,
     onBlur: e => saveDraft(row, e.target.value),
@@ -2623,11 +2790,18 @@ function OutreachQueue({
     row: row,
     canEdit: canEdit,
     onSave: saveReplacementContact
-  }), canEdit && /*#__PURE__*/React.createElement("a", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "flex-start",
+      gap: "10px",
+      marginTop: "10px"
+    }
+  }, canEdit && /*#__PURE__*/React.createElement("a", {
     href: findDifferentContactUrl(row),
     style: {
       display: "inline-block",
-      marginTop: "10px",
       background: "none",
       border: "1px solid #9CC3D4",
       color: "#9CC3D4",
@@ -2636,7 +2810,11 @@ function OutreachQueue({
       padding: "5px 10px",
       textDecoration: "none"
     }
-  }, "Find a different contact ↗"));
+  }, "Find a different contact ↗"), /*#__PURE__*/React.createElement(SkipWithReasonControl, {
+    row: row,
+    canEdit: canEdit,
+    onConfirm: skipWithReason
+  })));
   const renderNeedsContactCard = row => /*#__PURE__*/React.createElement("div", {
     key: row.id,
     style: {
@@ -2683,11 +2861,18 @@ function OutreachQueue({
     row: row,
     canEdit: canEdit,
     onSave: saveReplacementContact
-  }), canEdit && /*#__PURE__*/React.createElement("a", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "flex-start",
+      gap: "10px",
+      marginTop: "10px"
+    }
+  }, canEdit && /*#__PURE__*/React.createElement("a", {
     href: findContactUrl(row),
     style: {
       display: "inline-block",
-      marginTop: "10px",
       background: "none",
       border: "1px solid #9CC3D4",
       color: "#9CC3D4",
@@ -2696,7 +2881,11 @@ function OutreachQueue({
       padding: "5px 10px",
       textDecoration: "none"
     }
-  }, "Find a contact ↗"));
+  }, "Find a contact ↗"), /*#__PURE__*/React.createElement(SkipWithReasonControl, {
+    row: row,
+    canEdit: canEdit,
+    onConfirm: skipWithReason
+  })));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#71767D",
