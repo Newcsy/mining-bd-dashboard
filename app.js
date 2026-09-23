@@ -1283,7 +1283,8 @@ function NextUpSection({
   startOutreachCount,
   readyToSendCount,
   openInClaudeUrl,
-  canEdit
+  canEdit,
+  actionsFn
 }) {
   const btnLabel = triggerStatus === "starting" ? "Starting…" : triggerStatus === "started" ? "Started — check back in ~30-60 min" : triggerStatus === "error" ? "Couldn't start, try again" : "Find more candidates";
   const startLabel = startOutreachStatus === "flagging" ? "Flagging…" : startOutreachStatus === "flagged" ? `Flagged ${startOutreachCount} for sending ✓` : startOutreachStatus === "error" ? "Couldn't flag, try again" : startOutreachStatus === "none" ? "Nothing ready to flag" : "Start outreach";
@@ -1379,7 +1380,9 @@ function NextUpSection({
   }, rows.map(r => /*#__PURE__*/React.createElement(ReportContactRow, {
     key: r.id,
     row: r,
-    onOpenItem: onOpenItem
+    onOpenItem: onOpenItem,
+    canEdit: canEdit,
+    actionsFn: actionsFn
   }))));
 }
 // Webhook that fires the "Outreach Queue Builder" n8n workflow (added
@@ -1445,6 +1448,29 @@ function BdReportPage({
     status: "meeting_booked",
     meeting_date: dateStr
   });
+  // Manual override for "Next up this week" (2026-09-23, per Greg: a row
+  // stayed stuck showing "Ready to send" after he'd already reached out
+  // outside the normal flow -- already connected with the contact, so he
+  // sent a message via LinkedIn chat rather than a connect request). Same
+  // target status/timestamp the Outreach tab's equivalent override uses:
+  // message_sent, which is "awaiting a reply" rather than "awaiting a
+  // connection accept" -- the state this situation actually describes.
+  const markAlreadySent = row => updateRow(row.id, {
+    status: "message_sent",
+    message_sent_at: row.message_sent_at || new Date().toISOString()
+  });
+  const nextUpActions = row => /*#__PURE__*/React.createElement("button", {
+    onClick: () => markAlreadySent(row),
+    style: {
+      background: "none",
+      border: "1px solid #4F7C90",
+      color: "#9CC3D4",
+      borderRadius: "3px",
+      fontSize: "11px",
+      padding: "2px 8px",
+      cursor: "pointer"
+    }
+  }, "Already reached out");
   const triggerRefill = async () => {
     setTriggerStatus("starting");
     try {
@@ -1636,7 +1662,8 @@ function BdReportPage({
     startOutreachCount: startOutreachCount,
     readyToSendCount: readyToSendCount,
     openInClaudeUrl: openInClaudeUrl,
-    canEdit: canEdit
+    canEdit: canEdit,
+    actionsFn: nextUpActions
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Meetings booked",
     accentColor: "#7C9A5B",
@@ -2340,6 +2367,28 @@ function OutreachQueue({
       fontSize: "11.5px"
     }
   }, "Pre-filled in your LinkedIn tab — open it, review, click Send there, then mark it here."), /*#__PURE__*/React.createElement("button", {
+    // Override for when "Mark as sent" doesn't fit: a LinkedIn connect
+    // request was never needed because the contact was already connected,
+    // so the outreach actually happened as a direct message instead
+    // (2026-09-23, per Greg: "I was already connected with him so i sent
+    // the message via chat not connect... theres nothing to send at this
+    // stage"). Skips straight to message_sent (awaiting a reply) rather
+    // than connect_sent (awaiting a connection accept), which is the
+    // status this case actually describes -- reuses setPipelineStatus,
+    // the same status-change path the "Sent — tracking replies" dropdown
+    // already uses.
+    onClick: () => setPipelineStatus(row, "message_sent"),
+    disabled: !canEdit,
+    style: {
+      background: "none",
+      border: "1px solid #4F7C90",
+      color: canEdit ? "#9CC3D4" : "#5E6268",
+      borderRadius: "3px",
+      fontSize: "12px",
+      padding: "5px 12px",
+      cursor: canEdit ? "pointer" : "default"
+    }
+  }, "Already connected — sent a message"), /*#__PURE__*/React.createElement("button", {
     onClick: () => notRightContact(row),
     disabled: !canEdit,
     style: {
@@ -5060,10 +5109,33 @@ function Dashboard() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+  // Clicking a project from BD Report / Outreach / Comments used to just
+  // switch to the Pipeline tab and set openId, but a leftover search/filter
+  // from earlier Pipeline browsing could hide the item entirely (it's still
+  // "open" internally, just nothing on screen to show for it), and even with
+  // no filter active there was no scroll -- landing back at the top of a
+  // 650+ row list is indistinguishable from "did nothing" (2026-09-23, per
+  // Greg: "takes you back to the pipeline but not to that project itself...
+  // you have to search for that job"). Clearing filters guarantees the item
+  // is actually in the rendered list; the scroll effect below (keyed off
+  // openId) then brings it into view once it's on screen.
   const openItemFromActions = itemId => {
+    clearAll();
     setView("pipeline");
     setOpenId(itemId);
   };
+  // Scrolls the just-opened item's row into view once it's actually on the
+  // page. Runs after clearAll()+setOpenId() above commit (filters clearing
+  // and openId changing land in the same render), and also covers directly
+  // expanding a row by clicking it in the list itself.
+  useEffect(() => {
+    if (view !== "pipeline" || openId == null) return;
+    const el = document.getElementById(`pipeline-item-${openId}`);
+    if (el) el.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+  }, [view, openId, filtered]);
   const handleUndo = (item, field, oldValue) => {
     if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);else if (field === "Stage") setStageOverride(item.id, oldValue, item.algoStage);else if (field === "Lead Warmth") setWarmthOverride(item.id, oldValue, item.algoWarmth);else if (field === "Opportunity Type") {
       const restored = oldValue === "None" || !oldValue ? [] : oldValue.split(", ");
@@ -5496,6 +5568,7 @@ function Dashboard() {
       }
     }, rows.map((item, idx) => /*#__PURE__*/React.createElement("div", {
       key: item.id,
+      id: `pipeline-item-${item.id}`,
       style: {
         borderTop: idx === 0 ? "none" : "1px solid #23272D"
       }
