@@ -2836,7 +2836,7 @@ function OutreachQueue({
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "Genuinely fresh opportunity, but monday only has a generic team/company contact - find a named person before outreach can be drafted."), needsContact.map(renderNeedsContactCard)), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Genuinely fresh opportunity, but monday has no named individual on file yet - either a generic team/company contact, or nothing at all. Find a named person before outreach can be drafted."), needsContact.map(renderNeedsContactCard)), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "32px"
     }
