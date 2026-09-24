@@ -205,6 +205,23 @@ function buildOutreachQueueDraft(row) {
   const stageLine = row.stage ? ` at the ${row.stage} stage` : "";
   return `Hi — I noticed ${row.opportunity_name}${stageLine} and wanted to connect. I work on NPI and engineering delivery for mining and resources projects.`.slice(0, 300);
 }
+// The single outreach_queue patch for "a named contact has now been found
+// for this row" -- shared by the Outreach tab (Needs a contact / Needs a
+// different contact) and BD Report's "Found, needs a contact" quick-add
+// (2026-09-24), so the two entry points can't drift apart. Moves the row to
+// Ready to review with a starter draft (never clobbering an existing one).
+function contactFoundPatch(row, name, role, linkedin) {
+  return {
+    contact_name: name,
+    contact_role: role || null,
+    contact_linkedin_url: linkedin || null,
+    contact_is_individual: true,
+    contact_rejected: false,
+    status: "pending_review",
+    reviewed_at: null,
+    draft_message: row.draft_message || buildOutreachQueueDraft(row)
+  };
+}
 const GENERIC_CONTACT_PATTERNS = /\b(team|study|development|manager|group|department|tbd|unknown|n\/a|none|unclear|contact|committee|panel|commission|solutions|enquiries|council|authority|estate|program|programme)\b/i;
 function extractPersonName(contact) {
   return (contact || "").split("(")[0].trim();
@@ -223,11 +240,14 @@ function linkedInSearchUrl(item) {
   const q = name ? `${name} ${company}` : `${company} Project Director OR Study Manager OR General Manager OR Procurement Manager`;
   return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
 }
+// manualContactName = first person added via the Pipeline's Contacts list
+// (`contacts` table). Counted as a usable contact since 2026-09-24 -- before
+// that, adding someone there left the row still tagged "No contact".
 function hasUsableContact(item) {
-  return !!item.outreachContactName || isRealPersonName(item.contact);
+  return !!item.outreachContactName || !!item.manualContactName || isRealPersonName(item.contact);
 }
 function displayContactName(item) {
-  return item.outreachContactName || item.contact || null;
+  return item.outreachContactName || item.manualContactName || item.contact || null;
 }
 function formatShortDate(dateStr) {
   if (!dateStr) return null;
@@ -929,10 +949,21 @@ function WorkflowErrorBanner({
 }
 // Manual "I already know who the right contact is" replacement, alongside
 // the live find-someone-else trigger for when Greg doesn't (2026-09-21).
+// LinkedIn URLs get pasted in all sorts of shapes ("linkedin.com/in/x",
+// "www.linkedin.com/in/x/", full https URL) -- store a clickable absolute
+// URL either way so the "LinkedIn ↗" links everywhere actually open.
+function normalizeLinkedInUrl(raw) {
+  const v = (raw || "").trim();
+  if (!v) return "";
+  return /^https?:\/\//i.test(v) ? v : "https://" + v.replace(/^\/+/, "");
+}
 function ReplacementContactForm({
   row,
   canEdit,
-  onSave
+  onSave,
+  saveLabel,
+  savedText,
+  namePlaceholder
 }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -944,7 +975,7 @@ function ReplacementContactForm({
         color: "#7C9A5B",
         fontSize: "11.5px"
       }
-    }, "Replacement saved — back in Ready to review ✓");
+    }, savedText || "Replacement saved — back in Ready to review ✓");
   }
   const inputStyle = {
     background: "#1D2126",
@@ -970,7 +1001,7 @@ function ReplacementContactForm({
     }
   }, /*#__PURE__*/React.createElement("input", {
     type: "text",
-    placeholder: "New contact name",
+    placeholder: namePlaceholder || "New contact name",
     value: name,
     disabled: !canEdit,
     onChange: e => setName(e.target.value),
@@ -994,7 +1025,7 @@ function ReplacementContactForm({
   }), /*#__PURE__*/React.createElement("button", {
     disabled: !canEdit || !name.trim(),
     onClick: () => {
-      onSave(row, name.trim(), role.trim(), linkedin.trim());
+      onSave(row, name.trim(), role.trim(), normalizeLinkedInUrl(linkedin));
       setSaved(true);
     },
     style: {
@@ -1007,7 +1038,82 @@ function ReplacementContactForm({
       padding: "5px 12px",
       cursor: canEdit ? "pointer" : "default"
     }
-  }, "Save replacement"));
+  }, saveLabel || "Save replacement"));
+}
+// BD Report's "Found, needs a contact" rows (2026-09-24, per Greg: "under
+// found, needs a contact there is no way of adding that contact in") --
+// previously read-only, with the description pointing at the Outreach tab.
+// Collapsed behind an "Add contact" button so the list stays scannable, and
+// reuses the same form + save path the Outreach tab's Needs-a-contact cards
+// already use, so both tabs write the identical outreach_queue patch.
+function NeedsContactQuickAdd({
+  row,
+  canEdit,
+  onSave
+}) {
+  const [open, setOpen] = useState(false);
+  const peopleSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(row.company || row.opportunity_name || "")}`;
+  const linkStyle = {
+    color: "#7A93B0",
+    fontSize: "11.5px",
+    textDecoration: "none"
+  };
+  if (!open) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        flexWrap: "wrap"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setOpen(true),
+      disabled: !canEdit,
+      style: {
+        background: "none",
+        border: "1px solid #C79A6B",
+        color: "#E2BE96",
+        borderRadius: "3px",
+        fontSize: "11px",
+        padding: "2px 8px",
+        cursor: canEdit ? "pointer" : "default"
+      }
+    }, "Add contact"), /*#__PURE__*/React.createElement("a", {
+      href: peopleSearchUrl,
+      target: "_blank",
+      rel: "noreferrer",
+      style: linkStyle
+    }, "Search LinkedIn for people at ", row.company || "this company", " ↗"));
+  }
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(ReplacementContactForm, {
+    row: row,
+    canEdit: canEdit,
+    onSave: onSave,
+    namePlaceholder: "Contact name",
+    saveLabel: "Save contact",
+    savedText: "Contact saved — moved to Found, awaiting your review ✓"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "12px",
+      marginTop: "4px"
+    }
+  }, /*#__PURE__*/React.createElement("a", {
+    href: peopleSearchUrl,
+    target: "_blank",
+    rel: "noreferrer",
+    style: linkStyle
+  }, "Search LinkedIn ↗"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setOpen(false),
+    style: {
+      background: "none",
+      border: "none",
+      color: "#5E6268",
+      fontSize: "11.5px",
+      cursor: "pointer",
+      padding: 0
+    }
+  }, "Cancel")));
 }
 // Fixed list rather than free text so skips are actually aggregable later
 // (2026-09-23, per Greg: skip reasons "should have a feedback loop which
@@ -1471,6 +1577,12 @@ function BdReportPage({
       cursor: "pointer"
     }
   }, "Already reached out");
+  const saveFoundContact = (row, name, role, linkedin) => updateRow(row.id, contactFoundPatch(row, name, role, linkedin));
+  const needsContactActions = row => /*#__PURE__*/React.createElement(NeedsContactQuickAdd, {
+    row: row,
+    canEdit: canEdit,
+    onSave: saveFoundContact
+  });
   const triggerRefill = async () => {
     setTriggerStatus("starting");
     try {
@@ -1716,10 +1828,12 @@ function BdReportPage({
   }), /*#__PURE__*/React.createElement(ReportSection, {
     title: "Found, needs a contact",
     accentColor: "#C79A6B",
-    description: "Genuinely fresh opportunities, but monday only has a generic team/company contact - find a named person on the Outreach tab before outreach can be drafted.",
+    description: "Fresh opportunities with no named person on file yet. Add the contact (name, role, LinkedIn profile) here and it moves up to \"Found, awaiting your review\" with a starter draft.",
     rows: needsContactReport,
     emptyText: "Nothing waiting on a contact right now.",
-    onOpenItem: onOpenItem
+    onOpenItem: onOpenItem,
+    canEdit: canEdit,
+    actionsFn: needsContactActions
   }), declined.length > 0 && /*#__PURE__*/React.createElement(ReportSection, {
     title: "Declined",
     accentColor: "#71767D",
@@ -2247,21 +2361,10 @@ function OutreachQueue({
       prep_note: (row.prep_note ? row.prep_note + " " : "") + `[${new Date().toISOString().split("T")[0]}] Flagged by Greg as the wrong contact.`
     });
   };
+  // Starter draft backfill (2026-09-23) and the rest of the patch now live in
+  // contactFoundPatch, shared with BD Report's quick-add (2026-09-24).
   const saveReplacementContact = (row, name, role, linkedin) => {
-    updateRow(row.id, {
-      contact_name: name,
-      contact_role: role || null,
-      contact_linkedin_url: linkedin || null,
-      contact_rejected: false,
-      status: "pending_review",
-      reviewed_at: null,
-      // Give it a starter draft right away rather than leaving Ready to
-      // review empty (2026-09-23) -- only backfills if there's nothing
-      // there yet, so a real draft from the "wrong contact" flow (still
-      // relevant to the same opportunity, just possibly stale) isn't
-      // clobbered.
-      draft_message: row.draft_message || buildOutreachQueueDraft(row)
-    });
+    updateRow(row.id, contactFoundPatch(row, name, role, linkedin));
   };
   const toggleNeedsEmail = (row, value) => updateRow(row.id, {
     needs_email: value
@@ -3468,11 +3571,14 @@ function TaskList({
 function ContactList({
   itemId,
   company,
-  canEdit
+  canEdit,
+  onContactAdded
 }) {
   const [contacts, setContacts] = useState(null);
+  const [promotedNote, setPromotedNote] = useState(null);
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
+  const [linkedin, setLinkedin] = useState("");
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -3503,15 +3609,41 @@ function ContactList({
       item_id: itemId,
       name: name.trim(),
       role: role.trim() || null,
+      // contacts.linkedin_url existed in the table all along but the form
+      // never exposed it (2026-09-24, per Greg: "you cant add the
+      // individuals linkedin profile just their email. As its a BD system
+      // linkedin would be more relevant").
+      linkedin_url: normalizeLinkedInUrl(linkedin) || null,
       email: email.trim() || null
     }).select();
     if (error) {
       setError("Couldn't save contact. Try again.");
     } else {
-      setContacts([...(contacts || []), data[0]]);
+      const added = data[0];
+      setContacts([...(contacts || []), added]);
       setName("");
       setRole("");
+      setLinkedin("");
       setEmail("");
+      // Bridge to outreach (2026-09-24): if this project is sitting in the
+      // outreach queue as "Needs a contact", the person just added here IS
+      // that missing contact -- promote the queue row with the same patch
+      // the BD Report / Outreach tab forms use, instead of leaving the two
+      // records disconnected. Only needs_contact rows are touched, so a
+      // project already mid-outreach with someone else is never re-pointed.
+      let promoted = false;
+      const {
+        data: oqRows
+      } = await supabaseClient.from("outreach_queue").select("*").eq("item_id", itemId);
+      const target = (oqRows || []).find(r => r.status === "needs_contact");
+      if (target) {
+        const {
+          error: promoteError
+        } = await supabaseClient.from("outreach_queue").update(contactFoundPatch(target, added.name, added.role, added.linkedin_url)).eq("id", target.id);
+        promoted = !promoteError;
+      }
+      setPromotedNote(promoted ? `${added.name} is now the outreach contact for this project, in "Found, awaiting your review" with a starter draft.` : null);
+      if (onContactAdded) onContactAdded(itemId, added, promoted);
     }
     setSaving(false);
   };
@@ -3525,7 +3657,13 @@ function ContactList({
       fontSize: "11px",
       marginBottom: "8px"
     }
-  }, "Contacts"), contacts === null ? /*#__PURE__*/React.createElement("div", {
+  }, "Contacts"), promotedNote && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#7C9A5B",
+      fontSize: "12px",
+      marginBottom: "8px"
+    }
+  }, promotedNote, " ✓"), contacts === null ? /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "12.5px"
@@ -3561,7 +3699,9 @@ function ContactList({
       marginTop: "2px"
     }
   }, /*#__PURE__*/React.createElement("a", {
-    href: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(c.name + " " + (company || ""))}`,
+    // Saved profile if there is one; otherwise fall back to a people
+    // search, labelled as such so it isn't mistaken for their profile.
+    href: c.linkedin_url || `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(c.name + " " + (company || ""))}`,
     target: "_blank",
     rel: "noopener noreferrer",
     style: {
@@ -3569,7 +3709,7 @@ function ContactList({
       fontSize: "12px",
       textDecoration: "none"
     }
-  }, "LinkedIn"), c.email && /*#__PURE__*/React.createElement("a", {
+  }, c.linkedin_url ? "LinkedIn profile ↗" : "Find on LinkedIn ↗"), c.email &&/*#__PURE__*/React.createElement("a", {
     href: `mailto:${c.email}`,
     style: {
       color: "#9CC3D4",
@@ -3610,6 +3750,19 @@ function ContactList({
     placeholder: "Role",
     style: {
       flex: "1 1 100px",
+      background: "#1D2126",
+      border: "1px solid #2C3138",
+      borderRadius: "3px",
+      color: "#EDE9E1",
+      fontSize: "12.5px",
+      padding: "6px 10px"
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    value: linkedin,
+    onChange: e => setLinkedin(e.target.value),
+    placeholder: "LinkedIn profile URL",
+    style: {
+      flex: "1 1 200px",
       background: "#1D2126",
       border: "1px solid #2C3138",
       borderRadius: "3px",
@@ -4138,7 +4291,8 @@ function Row({
   allOpportunityTypes,
   onWarmthChange,
   canEdit,
-  onUndo
+  onUndo,
+  onContactAdded
 }) {
   const style = TIER_STYLE[item.tier] || TIER_STYLE["Unscoped"];
   return /*#__PURE__*/React.createElement("div", {
@@ -4556,7 +4710,8 @@ function Row({
   }, /*#__PURE__*/React.createElement(ContactList, {
     itemId: item.id,
     company: item.company || item.name,
-    canEdit: canEdit
+    canEdit: canEdit,
+    onContactAdded: onContactAdded
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       gridColumn: "1 / -1",
@@ -4815,7 +4970,16 @@ function Dashboard() {
     // disappear from the dashboard (see brief, 2026-09-10 session).
     async function loadItems() {
       try {
-        const [oppResult, outreachResult] = await Promise.all([supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, npi_potential, owner_accessibility, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw, updated_at").limit(2000), supabaseClient.from("outreach_queue").select("item_id, contact_name, contact_role, contact_linkedin_url, status, queued_at, prepared_at, connect_sent_at, message_sent_at, reviewed_at")]);
+        const [oppResult, outreachResult, contactsResult] = await Promise.all([supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, npi_potential, owner_accessibility, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw, updated_at").limit(2000), supabaseClient.from("outreach_queue").select("item_id, contact_name, contact_role, contact_linkedin_url, status, queued_at, prepared_at, connect_sent_at, message_sent_at, reviewed_at"), supabaseClient.from("contacts").select("item_id, name, created_at").order("created_at", {
+          ascending: true
+        })]);
+        // First manually-added Pipeline contact per project (2026-09-24).
+        const manualContactByItem = {};
+        if (contactsResult && !contactsResult.error) {
+          for (const c of contactsResult.data || []) {
+            if (!manualContactByItem[c.item_id]) manualContactByItem[c.item_id] = c.name;
+          }
+        }
         const {
           data,
           error
@@ -4879,7 +5043,8 @@ function Dashboard() {
             outreachContactName: outreach ? outreach.contact_name : null,
             outreachContactRole: outreach ? outreach.contact_role : null,
             outreachLinkedIn: outreach ? outreach.contact_linkedin_url : null,
-            outreachStatus: outreach ? outreach.status : null
+            outreachStatus: outreach ? outreach.status : null,
+            manualContactName: manualContactByItem[row.item_id] || null
           };
         });
         setItems(mapped);
@@ -5136,6 +5301,24 @@ function Dashboard() {
       block: "center"
     });
   }, [view, openId, filtered]);
+  // Reflect a contact added in the Pipeline's Contacts list straight away
+  // (no reload needed): clears the "No contact" tag, and if ContactList
+  // promoted a "Needs a contact" outreach row, mirrors that too (2026-09-24).
+  const handleContactAdded = (itemId, contact, promoted) => {
+    setItems(prev => prev ? prev.map(i => {
+      if (i.id !== itemId) return i;
+      const next = Object.assign({}, i, {
+        manualContactName: i.manualContactName || contact.name
+      });
+      if (promoted) {
+        next.outreachContactName = contact.name;
+        next.outreachContactRole = contact.role || null;
+        next.outreachLinkedIn = contact.linkedin_url || null;
+        next.outreachStatus = "pending_review";
+      }
+      return next;
+    }) : prev);
+  };
   const handleUndo = (item, field, oldValue) => {
     if (field === "Tier") setTierOverride(item.id, oldValue, item.algoTier);else if (field === "Bid Status") setBidStatus(item.id, oldValue);else if (field === "Funding Status") setFundingStatus(item.id, oldValue, item.algoFunding);else if (field === "Position") setEngagementStage(item.id, oldValue, item.algoDbmv);else if (field === "Stage") setStageOverride(item.id, oldValue, item.algoStage);else if (field === "Lead Warmth") setWarmthOverride(item.id, oldValue, item.algoWarmth);else if (field === "Opportunity Type") {
       const restored = oldValue === "None" || !oldValue ? [] : oldValue.split(", ");
@@ -5589,7 +5772,8 @@ function Dashboard() {
       allOpportunityTypes: allOpportunityTypes,
       onWarmthChange: setWarmthOverride,
       canEdit: canEdit,
-      onUndo: handleUndo
+      onUndo: handleUndo,
+      onContactAdded: handleContactAdded
     })))));
   }), filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
