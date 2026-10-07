@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T01:53:08.009Z",
+  "generatedAt": "2026-10-07T16:00:31.030Z",
   "comments": [
     {
       "id": 1,
@@ -509,6 +509,60 @@
       "new_value": "Active",
       "changed_by": "Greg Newcomb",
       "changed_at": "2026-09-25T06:16:18.463704+00:00"
+    },
+    {
+      "id": 44,
+      "item_id": "12595645215",
+      "field": "Lead Warmth",
+      "old_value": "cold",
+      "new_value": "warm",
+      "changed_by": "Greg Newcomb",
+      "changed_at": "2026-10-07T06:37:23.848731+00:00"
+    },
+    {
+      "id": 45,
+      "item_id": "12595645212",
+      "field": "Lead Warmth",
+      "old_value": "cold",
+      "new_value": "hot",
+      "changed_by": "Greg Newcomb",
+      "changed_at": "2026-10-07T06:37:25.881525+00:00"
+    },
+    {
+      "id": 46,
+      "item_id": "12595675528",
+      "field": "Lead Warmth",
+      "old_value": "cold",
+      "new_value": "luke_warm",
+      "changed_by": "Greg Newcomb",
+      "changed_at": "2026-10-07T06:37:28.459705+00:00"
+    },
+    {
+      "id": 47,
+      "item_id": "12635328228",
+      "field": "Lead Warmth",
+      "old_value": "cold",
+      "new_value": "warm",
+      "changed_by": "Greg Newcomb",
+      "changed_at": "2026-10-07T06:37:30.346187+00:00"
+    },
+    {
+      "id": 48,
+      "item_id": "12635328228",
+      "field": "Lead Warmth",
+      "old_value": "warm",
+      "new_value": "hot",
+      "changed_by": "Greg Newcomb",
+      "changed_at": "2026-10-07T06:37:32.960238+00:00"
+    },
+    {
+      "id": 49,
+      "item_id": "12597207276",
+      "field": "Lead Warmth",
+      "old_value": "cold",
+      "new_value": "luke_warm",
+      "changed_by": "Greg Newcomb",
+      "changed_at": "2026-10-07T06:37:35.0685+00:00"
     }
   ],
   "bid_status": [
