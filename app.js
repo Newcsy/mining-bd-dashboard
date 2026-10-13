@@ -4327,7 +4327,17 @@ function Row({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, item.company || "Company unknown", " · ", formatAddedDate(item.createdAt), item.updatedAt ? ` · ${formatUpdatedDate(item.updatedAt)}` : null)), /*#__PURE__*/React.createElement("div", {
+  }, item.company || "Company unknown", " · ", formatAddedDate(item.createdAt), item.updatedAt ? ` · ${formatUpdatedDate(item.updatedAt)}` : null), item.nextAction && item.bdState && item.bdState !== "closed" ? /*#__PURE__*/React.createElement("div", {
+    title: item.lastFinding || item.nextAction,
+    style: {
+      color: item.nextActionDue && item.nextActionDue < new Date().toISOString().slice(0, 10) ? "#E9987A" : "#8FB39C",
+      fontSize: "12px",
+      marginTop: "2px",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, (item.bdState === "parked" ? "Parked · " : "Next: ") + item.nextAction + (item.nextActionOwner ? " · " + item.nextActionOwner : "") + (item.nextActionDue ? " · due " + item.nextActionDue : "")) : null), /*#__PURE__*/React.createElement("div", {
     className: "bd-col-hide",
     style: {
       color: "#B7BBC1",
@@ -4516,7 +4526,10 @@ function Row({
     value: item.trigger
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Next action",
-    value: item.nextAction
+    value: item.nextAction ? item.nextAction + (item.nextActionOwner ? " (" + item.nextActionOwner + (item.nextActionDue ? ", due " + item.nextActionDue : "") + ")" : "") : null
+  }), /*#__PURE__*/React.createElement(Detail, {
+    label: "Latest intel (BD Manager)",
+    value: item.lastFinding
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Path to win",
     value: item.pathToWin
@@ -4970,9 +4983,14 @@ function Dashboard() {
     // disappear from the dashboard (see brief, 2026-09-10 session).
     async function loadItems() {
       try {
-        const [oppResult, outreachResult, contactsResult] = await Promise.all([supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, npi_potential, owner_accessibility, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw, updated_at").limit(2000), supabaseClient.from("outreach_queue").select("item_id, contact_name, contact_role, contact_linkedin_url, status, queued_at, prepared_at, connect_sent_at, message_sent_at, reviewed_at"), supabaseClient.from("contacts").select("item_id, name, created_at").order("created_at", {
+        const [trackerResult, oppResult, outreachResult, contactsResult] = await Promise.all([supabaseClient.from("bd_tracker").select("item_id, state, next_action, next_action_due, next_action_owner, last_finding, last_worked_at"), supabaseClient.from("opportunities").select("item_id, name, company, commodity, state, stage, priority_tier, engagement_stage, funding_status, opportunity_types, bd_score, bd_rank, npi_potential, owner_accessibility, source_ref, source_url, first_seen_at, last_reviewed_at, notes_short, latitude, longitude, raw, updated_at").limit(2000), supabaseClient.from("outreach_queue").select("item_id, contact_name, contact_role, contact_linkedin_url, status, queued_at, prepared_at, connect_sent_at, message_sent_at, reviewed_at"), supabaseClient.from("contacts").select("item_id, name, created_at").order("created_at", {
           ascending: true
         })]);
+        // BD Manager tracker (2026-10-13): next action / due / owner / latest intel per opportunity.
+        const trackerByItem = {};
+        if (trackerResult && !trackerResult.error) {
+          for (const t of trackerResult.data || []) trackerByItem[t.item_id] = t;
+        }
         // First manually-added Pipeline contact per project (2026-09-24).
         const manualContactByItem = {};
         if (contactsResult && !contactsResult.error) {
@@ -5039,7 +5057,11 @@ function Dashboard() {
             contact: row.raw && row.raw.key_contact || null,
             trigger: row.raw && row.raw.trigger_event || null,
             pathToWin: row.raw && row.raw.path_to_win || null,
-            nextAction: row.raw && row.raw.next_action || null,
+            nextAction: trackerByItem[row.item_id] && trackerByItem[row.item_id].next_action || row.raw && row.raw.next_action || null,
+            nextActionDue: trackerByItem[row.item_id] ? trackerByItem[row.item_id].next_action_due : null,
+            nextActionOwner: trackerByItem[row.item_id] ? trackerByItem[row.item_id].next_action_owner : null,
+            bdState: trackerByItem[row.item_id] ? trackerByItem[row.item_id].state : null,
+            lastFinding: trackerByItem[row.item_id] ? trackerByItem[row.item_id].last_finding : null,
             outreachContactName: outreach ? outreach.contact_name : null,
             outreachContactRole: outreach ? outreach.contact_role : null,
             outreachLinkedIn: outreach ? outreach.contact_linkedin_url : null,
