@@ -4831,6 +4831,7 @@ function Dashboard() {
     loadAllCommentsForSearch();
   }, []);
   const [bidStatusFilter, setBidStatusFilter] = useState("");
+  const [showPassed, setShowPassed] = useState(false);
   const [warmthFilter, setWarmthFilter] = useState("");
   const [sortMode, setSortMode] = useState("score");
   const [opportunityTypeFilter, setOpportunityTypeFilter] = useState("");
@@ -5739,6 +5740,15 @@ function Dashboard() {
   }, STATUS_ORDER.map(statusKey => {
     const rows = grouped[statusKey];
     if (!rows.length) return null;
+    if (statusKey === "Passed" && !showPassed && bidStatusFilter !== "Passed") return /*#__PURE__*/React.createElement("div", {
+      key: statusKey,
+      style: { marginBottom: "34px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setShowPassed(true),
+      style: { background: "transparent", border: "1px solid #23272D", borderRadius: "4px", color: "#9AA0A6", padding: "6px 12px", cursor: "pointer", fontSize: "13px" }
+    }, "Show " + rows.length + " closed / passed projects"), /*#__PURE__*/React.createElement("span", {
+      style: { color: "#5E6268", fontSize: "12px" }
+    }, "Hidden from the active list — kept with their close reason and checked weekly for revival news"));
     const style = BID_STATUS_STYLE[statusKey];
     return /*#__PURE__*/React.createElement("div", {
       key: statusKey,
@@ -5765,7 +5775,10 @@ function Dashboard() {
         color: "#5E6268",
         fontSize: "13px"
       }
-    }, rows.length)), /*#__PURE__*/React.createElement("div", {
+    }, rows.length), statusKey === "Passed" && showPassed && bidStatusFilter !== "Passed" ? /*#__PURE__*/React.createElement("button", {
+      onClick: () => setShowPassed(false),
+      style: { background: "transparent", border: "1px solid #23272D", borderRadius: "4px", color: "#9AA0A6", padding: "2px 10px", cursor: "pointer", fontSize: "12px" }
+    }, "Hide") : null), /*#__PURE__*/React.createElement("div", {
       style: {
         border: "1px solid #23272D",
         borderRadius: "4px",
