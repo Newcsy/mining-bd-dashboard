@@ -3148,6 +3148,14 @@ const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
 // Pursuit status: this is the primary way opportunities are grouped on the board.
 // "Needs Review" is the default for anything with no status set yet.
 const STATUS_ORDER = ["Needs Review", "Investigating", "Chasing", "Passed"];
+// Pipeline display order (Greg, 23 Oct): focus projects first, then what we are chasing, by priority.
+const DISPLAY_ORDER = ["Focus projects", "Chasing", "Investigating", "Needs Review", "Passed"];
+const FOCUS_STYLE = {
+  color: "#C9A227",
+  bar: "#C9A227",
+  label: "Focus projects — closest to an NPI study award or D&C tender"
+};
+const WARMTH_RANK = { hot: 3, warm: 2, luke_warm: 1, cold: 0 };
 const BID_STATUS_STYLE = {
   "Needs Review": {
     color: "#4B4E53",
@@ -4813,6 +4821,16 @@ function Dashboard() {
     }).eq("id", id);
   };
   const [bidStatusMap, setBidStatusMap] = useState({});
+  const [focusMap, setFocusMap] = useState({});
+  useEffect(() => {
+    // Focus projects (BD Manager focus_list, status active/proposed) are pinned to the top of the pipeline.
+    supabaseClient.from("focus_list").select("item_id, rank, status, trigger_type, trigger_est_date, confidence, next_move").in("status", ["active", "proposed"]).then(({ data, error }) => {
+      if (error || !data) return;
+      const m = {};
+      data.forEach(r => { m[r.item_id] = r; });
+      setFocusMap(m);
+    });
+  }, []);
   const [commentsIndex, setCommentsIndex] = useState({});
   useEffect(() => {
     async function loadAllCommentsForSearch() {
@@ -5174,17 +5192,21 @@ function Dashboard() {
   }, [items, effectiveItems, search, commodity, state, stage, source, tierFilter, bidStatusFilter, bidStatusMap, commentsIndex, opportunityTypeFilter, warmthFilter]);
   const grouped = useMemo(() => {
     const g = {};
-    STATUS_ORDER.forEach(s => {
+    DISPLAY_ORDER.forEach(s => {
       g[s] = [];
     });
     filtered.forEach(i => {
       const s = normalizeBidStatus(bidStatusMap[i.id]);
-      g[s].push(i);
+      if (focusMap[i.id] && s !== "Passed" && s !== "Chasing") g["Focus projects"].push(i);else g[s].push(i);
     });
     const comparator = sortMode === "date" ? (a, b) => new Date(b.createdAt) - new Date(a.createdAt) : sortMode === "chase" ? (a, b) => b.chaseScore - a.chaseScore : (a, b) => a.rank - b.rank;
     Object.values(g).forEach(arr => arr.sort(comparator));
+    const byWarmth = (a, b) => (WARMTH_RANK[b.warmth] || 0) - (WARMTH_RANK[a.warmth] || 0) || comparator(a, b);
+    g["Chasing"].sort(byWarmth);
+    g["Investigating"].sort(byWarmth);
+    g["Focus projects"].sort((a, b) => ((focusMap[a.id] || {}).rank || 99) - ((focusMap[b.id] || {}).rank || 99));
     return g;
-  }, [filtered, bidStatusMap, sortMode]);
+  }, [filtered, bidStatusMap, sortMode, focusMap]);
   const anyFilterActive = search || commodity || state || stage || source || tierFilter || bidStatusFilter || opportunityTypeFilter || warmthFilter;
   const clearAll = () => {
     setSearch("");
@@ -5737,7 +5759,7 @@ function Dashboard() {
     style: {
       marginTop: "36px"
     }
-  }, STATUS_ORDER.map(statusKey => {
+  }, DISPLAY_ORDER.map(statusKey => {
     const rows = grouped[statusKey];
     if (!rows.length) return null;
     if (statusKey === "Passed" && !showPassed && bidStatusFilter !== "Passed") return /*#__PURE__*/React.createElement("div", {
@@ -5749,7 +5771,7 @@ function Dashboard() {
     }, "Show " + rows.length + " closed / passed projects"), /*#__PURE__*/React.createElement("span", {
       style: { color: "#5E6268", fontSize: "12px" }
     }, "Hidden from the active list — kept with their close reason and checked weekly for revival news"));
-    const style = BID_STATUS_STYLE[statusKey];
+    const style = statusKey === "Focus projects" ? FOCUS_STYLE : BID_STATUS_STYLE[statusKey];
     return /*#__PURE__*/React.createElement("div", {
       key: statusKey,
       style: {
