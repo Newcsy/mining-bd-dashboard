@@ -3149,7 +3149,13 @@ const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
 // "Needs Review" is the default for anything with no status set yet.
 const STATUS_ORDER = ["Needs Review", "Investigating", "Chasing", "Passed"];
 // Pipeline display order (Greg, 23 Oct): focus projects first, then what we are chasing, by priority.
-const DISPLAY_ORDER = ["Focus projects", "Chasing", "Investigating", "Needs Review", "Passed"];
+const DISPLAY_ORDER = ["Focus projects", "Chasing", "Investigating", "Channel partners", "Needs Review", "Passed"];
+// Contractor/EPCM channel partners (Greg, 4 Nov; bd_rules 21): item_ids CH-*, priority_tier "Channel".
+const CHANNEL_STYLE = {
+  color: "#8C6BB1",
+  bar: "#8C6BB1",
+  label: "Channel partners — D&C contractors and EPCMs we design NPI for"
+};
 const FOCUS_STYLE = {
   color: "#C9A227",
   bar: "#C9A227",
@@ -5197,7 +5203,7 @@ function Dashboard() {
     });
     filtered.forEach(i => {
       const s = normalizeBidStatus(bidStatusMap[i.id]);
-      if (focusMap[i.id] && s !== "Passed" && s !== "Chasing") g["Focus projects"].push(i);else g[s].push(i);
+      if (focusMap[i.id] && s !== "Passed" && s !== "Chasing") g["Focus projects"].push(i);else if (i.tier === "Channel" && s !== "Passed") g["Channel partners"].push(i);else g[s].push(i);
     });
     const comparator = sortMode === "date" ? (a, b) => new Date(b.createdAt) - new Date(a.createdAt) : sortMode === "chase" ? (a, b) => b.chaseScore - a.chaseScore : (a, b) => a.rank - b.rank;
     Object.values(g).forEach(arr => arr.sort(comparator));
@@ -5771,7 +5777,7 @@ function Dashboard() {
     }, "Show " + rows.length + " closed / passed projects"), /*#__PURE__*/React.createElement("span", {
       style: { color: "#5E6268", fontSize: "12px" }
     }, "Hidden from the active list — kept with their close reason and checked weekly for revival news"));
-    const style = statusKey === "Focus projects" ? FOCUS_STYLE : BID_STATUS_STYLE[statusKey];
+    const style = statusKey === "Focus projects" ? FOCUS_STYLE : statusKey === "Channel partners" ? CHANNEL_STYLE : BID_STATUS_STYLE[statusKey];
     return /*#__PURE__*/React.createElement("div", {
       key: statusKey,
       style: {
