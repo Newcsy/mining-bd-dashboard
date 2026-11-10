@@ -3149,7 +3149,19 @@ const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
 // "Needs Review" is the default for anything with no status set yet.
 const STATUS_ORDER = ["Needs Review", "Investigating", "Chasing", "Passed"];
 // Pipeline display order (Greg, 23 Oct): focus projects first, then what we are chasing, by priority.
-const DISPLAY_ORDER = ["Focus projects", "Chasing", "Investigating", "Channel partners", "Needs Review", "Passed"];
+// Re-ranked (Greg, 10 Nov): focus projects, then live opportunities (Chasing/Investigating, or in live comms with a contact), then leads (untriaged), with channel partners at the bottom - lowest chance of winning work, as contractors tend to keep design in-house.
+const DISPLAY_ORDER = ["Focus projects", "Live opportunities", "Leads", "Channel partners", "Passed"];
+const LIVE_OUTREACH_STATUSES = ["message_sent", "connected", "replied", "meeting_booked"];
+const LIVE_STYLE = {
+  color: "#6B8F6B",
+  bar: "#6B8F6B",
+  label: "Live opportunities - in communications or tendering"
+};
+const LEADS_STYLE = {
+  color: "#9AA0A6",
+  bar: "#4B4E53",
+  label: "Leads - not yet in conversation"
+};
 // Contractor/EPCM channel partners (Greg, 4 Nov; bd_rules 21): item_ids CH-*, priority_tier "Channel".
 const CHANNEL_STYLE = {
   color: "#8C6BB1",
@@ -3233,7 +3245,7 @@ function BidStatusBadge({
       background: "#1D2126",
       color: "#EDE9E1"
     }
-  }, s)));
+  }, s === "Needs Review" ? "Lead" : s)));
 }
 function SignInControl({
   session
@@ -5203,13 +5215,12 @@ function Dashboard() {
     });
     filtered.forEach(i => {
       const s = normalizeBidStatus(bidStatusMap[i.id]);
-      if (focusMap[i.id] && s !== "Passed" && s !== "Chasing") g["Focus projects"].push(i);else if (i.tier === "Channel" && s !== "Passed") g["Channel partners"].push(i);else g[s].push(i);
+      if (focusMap[i.id] && s !== "Passed" && s !== "Chasing") g["Focus projects"].push(i);else if (i.tier === "Channel" && s !== "Passed") g["Channel partners"].push(i);else if (s === "Passed") g["Passed"].push(i);else if (s === "Chasing" || s === "Investigating" || LIVE_OUTREACH_STATUSES.includes(i.outreachStatus)) g["Live opportunities"].push(i);else g["Leads"].push(i);
     });
     const comparator = sortMode === "date" ? (a, b) => new Date(b.createdAt) - new Date(a.createdAt) : sortMode === "chase" ? (a, b) => b.chaseScore - a.chaseScore : (a, b) => a.rank - b.rank;
     Object.values(g).forEach(arr => arr.sort(comparator));
     const byWarmth = (a, b) => (WARMTH_RANK[b.warmth] || 0) - (WARMTH_RANK[a.warmth] || 0) || comparator(a, b);
-    g["Chasing"].sort(byWarmth);
-    g["Investigating"].sort(byWarmth);
+    g["Live opportunities"].sort(byWarmth);
     g["Focus projects"].sort((a, b) => ((focusMap[a.id] || {}).rank || 99) - ((focusMap[b.id] || {}).rank || 99));
     return g;
   }, [filtered, bidStatusMap, sortMode, focusMap]);
@@ -5777,7 +5788,7 @@ function Dashboard() {
     }, "Show " + rows.length + " closed / passed projects"), /*#__PURE__*/React.createElement("span", {
       style: { color: "#5E6268", fontSize: "12px" }
     }, "Hidden from the active list — kept with their close reason and checked weekly for revival news"));
-    const style = statusKey === "Focus projects" ? FOCUS_STYLE : statusKey === "Channel partners" ? CHANNEL_STYLE : BID_STATUS_STYLE[statusKey];
+    const style = statusKey === "Focus projects" ? FOCUS_STYLE : statusKey === "Channel partners" ? CHANNEL_STYLE : statusKey === "Live opportunities" ? LIVE_STYLE : statusKey === "Leads" ? LEADS_STYLE : BID_STATUS_STYLE[statusKey];
     return /*#__PURE__*/React.createElement("div", {
       key: statusKey,
       style: {
