@@ -1869,9 +1869,13 @@ function MapView({
     const map = window.L.map(mapRef.current, {
       zoomControl: true
     }).setView([-25.5, 122], 5);
-    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-      maxZoom: 19
+    // CARTO basemaps began returning "API KEY REQUIRED" tiles (Nov 2026) - switched to Esri Dark Gray Canvas (no key needed).
+    window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+      attribution: "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors",
+      maxZoom: 16
+    }).addTo(map);
+    window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 16
     }).addTo(map);
     mapInstanceRef.current = map;
     return () => {
