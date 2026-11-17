@@ -1123,7 +1123,9 @@ function NeedsContactQuickAdd({
 // This only captures the category + an optional note today; nothing reads
 // it back into scoring yet -- that's a separate, deliberately-deferred
 // piece of work since it needs its own design (see the project brief).
-const SKIP_REASON_CATEGORIES = ["Not real engineering/NPI scope", "Too small / early stage", "Wrong location or commodity focus", "Owner not accessible / no realistic entry point", "Competitor or incumbent already engaged", "Other"];
+// "Personally managed" (Greg, 17 Nov 2026): not a rejection - Greg handles this person himself, so the conversation
+// keeps its status, the project is not passed, and the agents stop drafting for this person (bd_rules 36_personally_managed).
+const SKIP_REASON_CATEGORIES = ["Personally managed", "Not real engineering/NPI scope", "Too small / early stage", "Wrong location or commodity focus", "Owner not accessible / no realistic entry point", "Competitor or incumbent already engaged", "Other"];
 function SkipWithReasonControl({
   row,
   canEdit,
@@ -1133,6 +1135,14 @@ function SkipWithReasonControl({
   const [category, setCategory] = useState("");
   const [note, setNote] = useState("");
   const [done, setDone] = useState(false);
+  if (done === "managed") {
+    return React.createElement("span", {
+      style: {
+        color: "#8B9198",
+        fontSize: "11.5px"
+      }
+    }, "Left with you - no more drafts for this person");
+  }
   if (done) {
     return /*#__PURE__*/React.createElement("span", {
       style: {
@@ -1202,7 +1212,7 @@ function SkipWithReasonControl({
     disabled: !canEdit || !category,
     onClick: () => {
       onConfirm(row, category, note.trim());
-      setDone(true);
+      setDone(category === "Personally managed" ? "managed" : true);
     },
     style: {
       background: "none",
@@ -2463,6 +2473,19 @@ function OutreachQueue({
   // not just "Needs a contact" -- most skips happen from "Ready to review",
   // so limiting reason capture to one bucket would defeat the point.
   const skipWithReason = (row, category, note) => {
+    if (category === "Personally managed") {
+      const backTo = row.classification === "reply" || row.li_last_message_from === "contact" ? "replied" : row.classification === "follow_up" ? "connected" : "skipped_by_user";
+      updateRow(row.id, {
+        status: backTo,
+        reviewed_at: new Date().toISOString(),
+        skip_reason_category: category,
+        skip_reason: note || null,
+        greg_managed: true,
+        greg_managed_at: new Date().toISOString(),
+        contact_rejected: false
+      });
+      return;
+    }
     updateRow(row.id, {
       status: "skipped_by_user",
       reviewed_at: new Date().toISOString(),
