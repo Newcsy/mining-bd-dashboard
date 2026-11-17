@@ -1982,6 +1982,86 @@ function MapView({
     }
   }));
 }
+// Results tab (Greg, 17 Nov 2026): outreach funnel, weekly trend and what is working.
+// Reads public.outreach_results (one row per person contacted) and public.outreach_performance
+// (rates per group; the accept rate only counts invites sent 14+ days ago, column judged).
+// Emphasis palette: blue = accepted, grey = no answer.
+const RESULTS_BLUE = '#3987E5';
+const RESULTS_GREY = '#5E6268';
+const RESULTS_TRACK = '#1D2733';
+const RESULTS_MIN_JUDGED = 10;
+const RESULTS_GROUPS = [['role group', 'Who you contact'], ['note style', 'How the note is written'], ['stage', 'Project stage']];
+const RESULTS_LABELS = {
+  'project-milestone': 'Project news, then keen to connect',
+  coffee: 'Project news, then a coffee ask',
+  credential: 'Leads with DBM credentials',
+  'mutual-connection': 'Mentions a mutual connection',
+  'project-question': 'Asks a project question',
+  untagged: 'Not recorded',
+  unknown: 'Not recorded',
+  Unclear: 'Not recorded',
+  Channel: 'Channel partners'
+};
+function ResultsPage() {
+  const h = React.createElement;
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [tip, setTip] = useState(null);
+  const [showTable, setShowTable] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.all([supabaseClient.from('outreach_results').select('via_invite, connect_sent_at, accepted, replied, meeting, status, judged'), supabaseClient.from('outreach_performance').select('*')]).then(res => {
+      if (!live) return;
+      if (res[0].error || res[1].error) setError('Could not load results.');else setData({
+        people: res[0].data || [],
+        perf: res[1].data || []
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (error) return h('div', {style: {color: '#C1592E', fontSize: '13px'}}, error);
+  if (!data) return h('div', {style: {color: '#5E6268', fontSize: '13px'}}, 'Loading...');
+  const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
+  const invites = data.people.filter(p => p.via_invite);
+  const direct = data.people.filter(p => !p.via_invite);
+  const sent = invites.length;
+  const accepted = invites.filter(p => p.accepted).length;
+  const replied = invites.filter(p => p.replied).length;
+  const meetings = invites.filter(p => p.meeting).length;
+  const waiting = invites.filter(p => !p.accepted && p.status === 'connect_sent').length;
+  const judged = invites.filter(p => p.judged);
+  const judgedAcc = judged.filter(p => p.accepted).length;
+  const grey = {color: '#8B9198', fontSize: '13px'};
+  const h2 = text => h('h2', {style: {fontFamily: 'Fraunces, serif', fontWeight: 600, fontSize: '19px', color: '#EDE9E1', margin: '0 0 4px 0'}}, text);
+  const meter = (key, label, figure, note, share, color) => h('div', {key: key, style: {marginBottom: '12px'}}, h('div', {style: {display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', columnGap: '10px', marginBottom: '5px'}}, h('span', {style: {color: '#EDE9E1', fontSize: '13px'}}, label), h('span', {style: {fontSize: '13px', whiteSpace: 'nowrap'}}, h('span', {style: {color: '#EDE9E1', fontWeight: 600}}, figure), note ? h('span', {style: {color: '#8B9198'}}, ' ' + note) : null)), h('div', {style: {background: RESULTS_TRACK, height: '10px', borderRadius: '5px'}}, share > 0 ? h('div', {style: {width: Math.max(share, 1) + '%', height: '10px', borderRadius: '5px', background: color}}) : null));
+  const funnel = [['Connection notes sent', sent, '', 100], ['Accepted', accepted, pct(accepted, sent) + '% of notes sent', pct(accepted, sent)], ['Replied', replied, pct(replied, accepted) + '% of those who accepted', pct(replied, sent)], ['Meeting booked', meetings, '', pct(meetings, sent)]];
+  const weeks = [];
+  const thisMonday = mondayOf(new Date());
+  for (let i = 9; i >= 0; i--) weeks.push({start: new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7), sent: 0, accepted: 0});
+  invites.forEach(p => {
+    const wk = mondayOf(new Date(p.connect_sent_at)).getTime();
+    const w = weeks.find(x => x.start.getTime() === wk);
+    if (w) {
+      w.sent++;
+      if (p.accepted) w.accepted++;
+    }
+  });
+  const weekMax = Math.max.apply(null, weeks.map(w => w.sent).concat([1]));
+  const wkLabel = d => d.toLocaleDateString('en-AU', {day: 'numeric', month: 'short'});
+  const wkText = w => 'Week of ' + wkLabel(w.start) + ': ' + w.sent + ' sent, ' + w.accepted + ' accepted' + (w.sent ? ' (' + pct(w.accepted, w.sent) + '%)' : '');
+  const swatch = (color, text) => h('span', {style: {display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '16px'}}, h('span', {style: {width: '10px', height: '10px', borderRadius: '2px', background: color, display: 'inline-block'}}), text);
+  const groupBlock = g => {
+    const rows = data.perf.filter(r => r.dimension === g[0] && Number(r.sent) >= 3).map(r => ({name: RESULTS_LABELS[r.value] || r.value, sent: Number(r.sent), judged: Number(r.judged), acc: Number(r.judged_accepted), rate: pct(Number(r.judged_accepted), Number(r.judged)), replied: Number(r.replied)}));
+    const solid = rows.filter(r => r.judged >= RESULTS_MIN_JUDGED).sort((a, b) => b.rate - a.rate);
+    const thin = rows.filter(r => r.judged < RESULTS_MIN_JUDGED).sort((a, b) => b.sent - a.sent);
+    const verdict = solid.length >= 2 ? 'Best so far: ' + solid[0].name + ' (' + solid[0].rate + '%). Weakest: ' + solid[solid.length - 1].name + ' (' + solid[solid.length - 1].rate + '%).' : 'Not enough older notes yet to compare.';
+    const replies = r => r.replied ? ', ' + r.replied + (r.replied === 1 ? ' reply' : ' replies') : '';
+    return h('div', {key: g[0], style: {flex: '1 1 280px', minWidth: 0}}, h('div', {style: {color: '#EDE9E1', fontSize: '14px', fontWeight: 600, marginBottom: '3px'}}, g[1]), h('div', {style: {color: '#8B9198', fontSize: '12px', marginBottom: '14px', minHeight: '32px'}}, verdict), solid.map(r => meter(r.name, r.name, r.rate + '%', r.acc + ' of ' + r.judged + replies(r), r.rate, RESULTS_BLUE)), thin.map(r => meter(r.name, r.name, '', r.judged ? 'too few yet: ' + r.acc + ' of ' + r.judged : 'too early: ' + r.sent + ' sent', r.judged ? r.rate : 0, RESULTS_GREY)));
+  };
+  return h('div', null, h('div', {style: {marginBottom: '40px', maxWidth: '640px'}}, h2('From first note to meeting'), h('div', {style: Object.assign({}, grey, {marginBottom: '16px'})}, 'Everyone sent a LinkedIn connection note so far.'), funnel.map(f => meter(f[0], f[0], String(f[1]), f[2], f[3], RESULTS_BLUE)), h('div', {style: Object.assign({}, grey, {marginTop: '14px', lineHeight: 1.5})}, 'Accept rate ' + pct(judgedAcc, judged.length) + '% on notes sent at least 14 days ago (' + judgedAcc + ' of ' + judged.length + '). ' + waiting + ' still waiting for an answer; ' + (sent - accepted - waiting) + ' closed off unanswered.' + (direct.length ? ' Another ' + direct.length + ' people you were already connected with were messaged directly (' + direct.filter(p => p.replied).length + ' replied).' : ''))), h('div', {style: {marginBottom: '40px'}}, h2('Week by week'), h('div', {style: Object.assign({}, grey, {marginBottom: '12px'})}, 'Connection notes sent each week and how many have been accepted so far. Recent weeks keep filling in as people answer.'), h('div', {style: {display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px', color: '#8B9198', fontSize: '12px', marginBottom: '10px'}}, h('span', null, swatch(RESULTS_BLUE, 'Accepted'), swatch(RESULTS_GREY, 'No answer')), h('span', {style: {color: '#EDE9E1'}}, tip || 'Point at a week for detail')), h('div', {style: {display: 'flex', alignItems: 'flex-end', gap: '6px', height: '150px', borderBottom: '1px solid #2C3037'}}, weeks.map(w => h('div', {key: w.start.getTime(), tabIndex: 0, title: wkText(w), onMouseEnter: () => setTip(wkText(w)), onFocus: () => setTip(wkText(w)), onMouseLeave: () => setTip(null), onBlur: () => setTip(null), style: {flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', outline: 'none', cursor: 'default'}}, h('div', {style: {color: '#8B9198', fontSize: '11px', marginBottom: '4px'}}, w.sent || ''), w.sent - w.accepted > 0 ? h('div', {style: {width: '100%', maxWidth: '24px', height: (w.sent - w.accepted) / weekMax * 120 + 'px', minHeight: '2px', background: RESULTS_GREY, borderRadius: '4px 4px 0 0', marginBottom: w.accepted ? '2px' : 0}}) : null, w.accepted ? h('div', {style: {width: '100%', maxWidth: '24px', height: w.accepted / weekMax * 120 + 'px', minHeight: '2px', background: RESULTS_BLUE, borderRadius: w.sent - w.accepted > 0 ? 0 : '4px 4px 0 0'}}) : null))), h('div', {style: {display: 'flex', gap: '6px', marginTop: '6px'}}, weeks.map((w, i) => h('div', {key: i, className: i % 2 ? 'bd-col-hide' : '', style: {flex: 1, textAlign: 'center', color: '#71767D', fontSize: '11px', whiteSpace: 'nowrap', overflow: 'visible'}}, wkLabel(w.start)))), h('button', {onClick: () => setShowTable(!showTable), style: {background: 'none', border: 'none', padding: 0, marginTop: '12px', color: '#8B9198', fontSize: '12px', textDecoration: 'underline', cursor: 'pointer'}}, showTable ? 'Hide the table' : 'Show as a table'), showTable ? h('table', {style: {marginTop: '10px', borderCollapse: 'collapse', color: '#EDE9E1', fontSize: '13px'}}, h('tbody', null, h('tr', {style: {color: '#8B9198', textAlign: 'left'}}, ['Week of', 'Sent', 'Accepted'].map(t => h('th', {key: t, style: {fontWeight: 400, padding: '3px 22px 3px 0'}}, t))), weeks.map((w, i) => h('tr', {key: i}, [wkLabel(w.start), w.sent, w.accepted].map((v, j) => h('td', {key: j, style: {padding: '3px 22px 3px 0', fontVariantNumeric: 'tabular-nums'}}, v)))))) : null), h('div', null, h2('What is working'), h('div', {style: Object.assign({}, grey, {marginBottom: '20px', maxWidth: '760px', lineHeight: 1.5})}, 'Share of connection notes accepted, by group. Only notes sent at least 14 days ago are counted, so new notes still waiting do not drag a group down. Groups with fewer than ' + RESULTS_MIN_JUDGED + ' such notes are greyed out as too small to judge.'), h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: '36px'}}, RESULTS_GROUPS.map(groupBlock))));
+}
 function CommentsLog({
   items,
   onOpenItem
@@ -5542,9 +5622,31 @@ function Dashboard() {
       paddingBottom: "12px",
       marginBottom: "-13px"
     }
-  }, "BD Report")), /*#__PURE__*/React.createElement(SignInControl, {
+  }, "BD Report"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("results"),
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      color: view === "results" ? "#EDE9E1" : "#71767D",
+      fontSize: "13px",
+      fontWeight: 500,
+      borderBottom: view === "results" ? "2px solid #C1592E" : "2px solid transparent",
+      paddingBottom: "12px",
+      marginBottom: "-13px"
+    }
+  }, "Results")), /*#__PURE__*/React.createElement(SignInControl, {
     session: session
-  })), view === "report" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+  })), view === "results" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontFamily: "'Fraunces', serif",
+      fontWeight: 600,
+      fontSize: "28px",
+      color: "#EDE9E1",
+      margin: "0 0 28px 0"
+    }
+  }, "Results"), /*#__PURE__*/React.createElement(ResultsPage, null)) : view === "report" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
