@@ -2062,6 +2062,70 @@ function ResultsPage() {
   };
   return h('div', null, h('div', {style: {marginBottom: '40px', maxWidth: '640px'}}, h2('From first note to meeting'), h('div', {style: Object.assign({}, grey, {marginBottom: '16px'})}, 'Everyone sent a LinkedIn connection note so far.'), funnel.map(f => meter(f[0], f[0], String(f[1]), f[2], f[3], RESULTS_BLUE)), h('div', {style: Object.assign({}, grey, {marginTop: '14px', lineHeight: 1.5})}, 'Accept rate ' + pct(judgedAcc, judged.length) + '% on notes sent at least 14 days ago (' + judgedAcc + ' of ' + judged.length + '). ' + waiting + ' still waiting for an answer; ' + (sent - accepted - waiting) + ' closed off unanswered.' + (direct.length ? ' Another ' + direct.length + ' people you were already connected with were messaged directly (' + direct.filter(p => p.replied).length + ' replied).' : ''))), h('div', {style: {marginBottom: '40px'}}, h2('Week by week'), h('div', {style: Object.assign({}, grey, {marginBottom: '12px'})}, 'Connection notes sent each week and how many have been accepted so far. Recent weeks keep filling in as people answer.'), h('div', {style: {display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px', color: '#8B9198', fontSize: '12px', marginBottom: '10px'}}, h('span', null, swatch(RESULTS_BLUE, 'Accepted'), swatch(RESULTS_GREY, 'No answer')), h('span', {style: {color: '#EDE9E1'}}, tip || 'Point at a week for detail')), h('div', {style: {display: 'flex', alignItems: 'flex-end', gap: '6px', height: '150px', borderBottom: '1px solid #2C3037'}}, weeks.map(w => h('div', {key: w.start.getTime(), tabIndex: 0, title: wkText(w), onMouseEnter: () => setTip(wkText(w)), onFocus: () => setTip(wkText(w)), onMouseLeave: () => setTip(null), onBlur: () => setTip(null), style: {flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', outline: 'none', cursor: 'default'}}, h('div', {style: {color: '#8B9198', fontSize: '11px', marginBottom: '4px'}}, w.sent || ''), w.sent - w.accepted > 0 ? h('div', {style: {width: '100%', maxWidth: '24px', height: (w.sent - w.accepted) / weekMax * 120 + 'px', minHeight: '2px', background: RESULTS_GREY, borderRadius: '4px 4px 0 0', marginBottom: w.accepted ? '2px' : 0}}) : null, w.accepted ? h('div', {style: {width: '100%', maxWidth: '24px', height: w.accepted / weekMax * 120 + 'px', minHeight: '2px', background: RESULTS_BLUE, borderRadius: w.sent - w.accepted > 0 ? 0 : '4px 4px 0 0'}}) : null))), h('div', {style: {display: 'flex', gap: '6px', marginTop: '6px'}}, weeks.map((w, i) => h('div', {key: i, className: i % 2 ? 'bd-col-hide' : '', style: {flex: 1, textAlign: 'center', color: '#71767D', fontSize: '11px', whiteSpace: 'nowrap', overflow: 'visible'}}, wkLabel(w.start)))), h('button', {onClick: () => setShowTable(!showTable), style: {background: 'none', border: 'none', padding: 0, marginTop: '12px', color: '#8B9198', fontSize: '12px', textDecoration: 'underline', cursor: 'pointer'}}, showTable ? 'Hide the table' : 'Show as a table'), showTable ? h('table', {style: {marginTop: '10px', borderCollapse: 'collapse', color: '#EDE9E1', fontSize: '13px'}}, h('tbody', null, h('tr', {style: {color: '#8B9198', textAlign: 'left'}}, ['Week of', 'Sent', 'Accepted'].map(t => h('th', {key: t, style: {fontWeight: 400, padding: '3px 22px 3px 0'}}, t))), weeks.map((w, i) => h('tr', {key: i}, [wkLabel(w.start), w.sent, w.accepted].map((v, j) => h('td', {key: j, style: {padding: '3px 22px 3px 0', fontVariantNumeric: 'tabular-nums'}}, v)))))) : null), h('div', null, h2('What is working'), h('div', {style: Object.assign({}, grey, {marginBottom: '20px', maxWidth: '760px', lineHeight: 1.5})}, 'Share of connection notes accepted, by group. Only notes sent at least 14 days ago are counted, so new notes still waiting do not drag a group down. Groups with fewer than ' + RESULTS_MIN_JUDGED + ' such notes are greyed out as too small to judge.'), h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: '36px'}}, RESULTS_GROUPS.map(groupBlock))));
 }
+// Portal audit changes (Greg, 17 Nov 2026): Today view, intel timeline, all contacts on the card, parked group.
+const PAGE_H1_STYLE = {fontFamily: 'Fraunces, serif', fontWeight: 600, fontSize: '28px', color: '#EDE9E1', margin: '0 0 28px 0'};
+const PARKED_STYLE = {color: '#8B9198', bar: '#4B4E53', label: 'Parked - researched and set aside until the revisit date'};
+const navTabStyle = active => ({background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: active ? '#EDE9E1' : '#71767D', fontSize: '13px', fontWeight: 500, borderBottom: active ? '2px solid #C1592E' : '2px solid transparent', paddingBottom: '12px', marginBottom: '-13px'});
+const QUIET_BUTTON = {background: 'transparent', border: '1px solid #2C3138', borderRadius: '4px', color: '#9AA0A6', padding: '6px 12px', cursor: 'pointer', fontSize: '13px'};
+const INTEL_SPLIT = /[ |]+(?=[0-9]{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?: [A-Za-z()]+){0,3}:)/;
+function IntelTimeline({text}) {
+  const h = React.createElement;
+  const [all, setAll] = useState(false);
+  if (!text) return null;
+  const entries = text.split(INTEL_SPLIT).map(s => s.trim()).filter(Boolean).map(s => {
+    const c = s.indexOf(':');
+    return /^[0-9]{1,2} [A-Z]/.test(s) && c > 0 && c < 40 ? {when: s.slice(0, c), body: s.slice(c + 1).trim()} : {when: '', body: s};
+  });
+  const shown = all ? entries : entries.slice(0, 3);
+  return h('div', {style: {gridColumn: '1 / -1', maxWidth: '820px'}}, h('div', {style: {color: '#5E6268', fontSize: '11px', marginBottom: '6px'}}, 'Latest intel (BD Manager)'), shown.map((e, i) => h('div', {key: i, style: {display: 'flex', gap: '12px', marginBottom: '8px'}}, h('div', {style: {width: '92px', flexShrink: 0, color: '#8B9198', fontSize: '12px', paddingTop: '1px'}}, e.when), h('div', {style: {color: '#C7CAD0', fontSize: '13px', lineHeight: 1.5, minWidth: 0}}, e.body))), entries.length > 3 ? h('button', {onClick: () => setAll(!all), style: {background: 'none', border: 'none', padding: 0, color: '#9CC3D4', fontSize: '12px', cursor: 'pointer'}}, all ? 'Show fewer' : 'Show ' + (entries.length - 3) + ' earlier entries') : null);
+}
+function OtherContacts({item}) {
+  const h = React.createElement;
+  const others = (item.outreachContacts || []).filter(c => c.contact_name !== item.outreachContactName);
+  if (!others.length) return null;
+  return h('div', {style: {marginTop: '8px'}}, others.map((c, i) => h('div', {key: i, style: {color: '#EDE9E1', fontSize: '13px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '4px'}}, c.contact_name, c.contact_role ? h('span', {style: {color: '#8B9198', fontSize: '12px'}}, '(' + c.contact_role + ')') : null, c.contact_linkedin_url ? h('a', {href: c.contact_linkedin_url, target: '_blank', rel: 'noopener noreferrer', style: {color: '#9CC3D4', fontSize: '12px', textDecoration: 'none'}}, 'LinkedIn') : null, h('span', {style: {color: (OUTREACH_STATUS_META[c.status] || {}).color || '#8B9198', fontSize: '11px', border: '1px solid currentColor', borderRadius: '3px', padding: '1px 6px'}}, (OUTREACH_STATUS_META[c.status] || {}).label || c.status))));
+}
+function TodayPage({items, canEdit, onOpenItem, onGo}) {
+  const h = React.createElement;
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const load = () => {
+    const since = new Date(Date.now() - 4 * 864e5).toISOString();
+    Promise.all([supabaseClient.from('outreach_queue').select('id, item_id, contact_name, contact_role, company, opportunity_name, status, classification, draft_message, contact_linkedin_url').in('status', ['pending_review', 'approved']), supabaseClient.from('bd_tracker').select('item_id, next_action, next_action_due, state').eq('next_action_owner', 'Greg').in('state', ['open', 'in_progress', 'progressed']).order('next_action_due'), supabaseClient.from('bd_activity').select('item_id, summary, at').eq('kind', 'linkedin').not('item_id', 'is', null).gte('at', since).order('at', {ascending: false}).limit(15)]).then(res => {
+      if (res[0].error || res[1].error || res[2].error) setError('Could not load today.');else setData({queue: res[0].data || [], actions: res[1].data || [], news: res[2].data || []});
+    });
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  if (error) return h('div', {style: {color: '#C1592E', fontSize: '13px'}}, error);
+  if (!data) return h('div', {style: {color: '#5E6268', fontSize: '13px'}}, 'Loading...');
+  const approve = ids => {
+    setData(d => Object.assign({}, d, {queue: d.queue.map(r => ids.includes(r.id) ? Object.assign({}, r, {status: 'approved'}) : r)}));
+    supabaseClient.from('outreach_queue').update({status: 'approved', reviewed_at: new Date().toISOString()}).in('id', ids).then(r => {
+      if (r.error) {
+        setError('Approval did not save. Check you are signed in.');
+      }
+    });
+  };
+  const pad = n => String(n).padStart(2, '0');
+  const now = new Date();
+  const today = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+  const short = d => new Date(d).toLocaleDateString('en-AU', {day: 'numeric', month: 'short'});
+  const nameOf = id => {
+    const it = (items || []).find(i => String(i.id) === String(id));
+    return it ? it.name : 'Project';
+  };
+  const pending = data.queue.filter(r => r.status === 'pending_review');
+  const waiting = data.queue.filter(r => r.status === 'approved' && r.contact_linkedin_url).length;
+  const actions = data.actions.filter(a => a.next_action && a.next_action.indexOf('Approve ') !== 0);
+  const kind = r => r.classification === 'follow_up' ? 'Follow-up message' : r.classification === 'reply' ? 'Reply' : 'Connection note';
+  const h2 = (text, count) => h('div', {style: {display: 'flex', alignItems: 'baseline', gap: '10px', margin: '0 0 12px 0'}}, h('h2', {style: {fontFamily: 'Fraunces, serif', fontWeight: 600, fontSize: '19px', color: '#EDE9E1', margin: 0}}, text), h('span', {style: {color: '#5E6268', fontSize: '13px'}}, count));
+  const empty = text => h('div', {style: {color: '#71767D', fontSize: '13px'}}, text);
+  const link = (text, onClick) => h('span', {onClick: onClick, style: {color: '#9CC3D4', cursor: 'pointer'}}, text);
+  const box = {border: '1px solid #23272D', borderRadius: '4px', padding: '12px 14px', marginBottom: '10px'};
+  return h('div', {style: {maxWidth: '820px'}}, h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: '28px', marginBottom: '36px'}}, h(ReportStat, {label: 'Notes to approve', value: pending.length, color: pending.length ? '#E9987A' : null}), h(ReportStat, {label: 'Actions for you', value: actions.length}), h(ReportStat, {label: 'LinkedIn news, last 4 days', value: data.news.length}), h(ReportStat, {label: 'Approved, waiting to send', value: waiting})), h('div', {style: {marginBottom: '36px'}}, h2('Notes to approve', pending.length), canEdit && pending.length > 1 ? h('button', {onClick: () => approve(pending.map(r => r.id)), style: Object.assign({}, QUIET_BUTTON, {marginBottom: '12px', color: '#EDE9E1', borderColor: '#6B8F6B'})}, 'Approve all ' + pending.length) : null, pending.length === 0 ? empty('Nothing waiting for approval.') : pending.map(r => h('div', {key: r.id, style: box}, h('div', {style: {color: '#EDE9E1', fontSize: '14px', fontWeight: 500}}, r.contact_name || 'Contact to be found', r.contact_role ? h('span', {style: {color: '#8B9198', fontWeight: 400, fontSize: '12.5px'}}, '  ' + r.contact_role) : null), h('div', {style: {color: '#8B9198', fontSize: '12.5px', margin: '2px 0 8px 0'}}, kind(r) + ' for ', link(r.opportunity_name || nameOf(r.item_id), () => onOpenItem(r.item_id))), h('div', {style: {background: '#1D2126', borderRadius: '4px', padding: '8px 10px', color: '#C7CAD0', fontSize: '13px', lineHeight: 1.5, whiteSpace: 'pre-wrap'}}, r.draft_message || ''), canEdit ? h('button', {onClick: () => approve([r.id]), style: Object.assign({}, QUIET_BUTTON, {marginTop: '10px'})}, 'Approve') : null)), pending.length ? h('div', {style: {color: '#71767D', fontSize: '12.5px', marginTop: '8px'}}, canEdit ? 'To skip a note or change the contact, use ' : 'Sign in to approve. To skip a note or change the contact, use ', link('Outreach', () => onGo('outreach')), '.') : null), h('div', {style: {marginBottom: '36px'}}, h2('Your actions', actions.length), actions.length === 0 ? empty('Nothing waiting on you.') : actions.map((a, i) => h('div', {key: i, style: box}, h('div', {style: {display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '3px'}}, h('span', {style: {fontSize: '14px', fontWeight: 500}}, link(nameOf(a.item_id), () => onOpenItem(a.item_id))), a.next_action_due ? h('span', {style: {fontSize: '12.5px', color: a.next_action_due < today ? '#E9987A' : '#8B9198'}}, (a.next_action_due < today ? 'Overdue, was due ' : 'Due ') + short(a.next_action_due)) : null), h('div', {style: {color: '#C7CAD0', fontSize: '13px', lineHeight: 1.5}}, a.next_action)))), h('div', null, h2('New on LinkedIn', data.news.length), data.news.length === 0 ? empty('No accepts or replies in the last 4 days.') : data.news.map((n, i) => h('div', {key: i, style: {display: 'flex', gap: '12px', padding: '7px 0', borderTop: i ? '1px solid #23272D' : 'none', fontSize: '13px'}}, h('span', {style: {width: '56px', flexShrink: 0, color: '#8B9198'}}, short(n.at)), h('span', {style: {color: '#C7CAD0', minWidth: 0}}, n.summary, ' - ', link(nameOf(n.item_id), () => onOpenItem(n.item_id)))))));
+}
 function CommentsLog({
   items,
   onOpenItem
@@ -2223,7 +2287,7 @@ const WARMTH_ORDER = ["cold", "luke_warm", "warm", "hot"];
 const WARMTH_META = {
   cold: {
     label: "Cold",
-    color: "#5E6268",
+    color: "#8B9198",
     description: "Cold — no contact yet"
   },
   luke_warm: {
@@ -2261,7 +2325,7 @@ function outreachBadgeMeta(item) {
   }
   return {
     label: "No contact",
-    color: "#5E6268"
+    color: "#8B9198"
   };
 }
 function OutreachStatusChip({
@@ -2369,6 +2433,7 @@ function OutreachQueue({
     } : r) : prev);
     await supabaseClient.from("outreach_queue").update(patch).eq("id", id);
   };
+  const [showAllSent, setShowAllSent] = useState(false);
   const approve = row => updateRow(row.id, {
     status: "approved",
     reviewed_at: new Date().toISOString()
@@ -3004,7 +3069,16 @@ function OutreachQueue({
       color: "#EDE9E1",
       margin: "0 0 12px 0"
     }
-  }, "Ready to review"), pendingReview.map(row => renderCard(row, cardActions))), needsContact.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Ready to review"), canEdit && pendingReview.length > 1 ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (window.confirm("Approve all " + pendingReview.length + " notes?")) pendingReview.forEach(approve);
+    },
+    style: Object.assign({}, QUIET_BUTTON, {
+      marginBottom: "12px",
+      color: "#EDE9E1",
+      borderColor: "#6B8F6B"
+    })
+  }, "Approve all " + pendingReview.length) : null, pendingReview.map(row => renderCard(row, cardActions))), needsContact.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "32px"
     }
@@ -3023,7 +3097,7 @@ function OutreachQueue({
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "Genuinely fresh opportunity, but monday has no named individual on file yet - either a generic team/company contact, or nothing at all. Find a named person before outreach can be drafted."), needsContact.map(renderNeedsContactCard)), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "A real opportunity with no named person on file yet - either a generic team/company contact, or nothing at all. Find a named person before outreach can be drafted."), needsContact.map(renderNeedsContactCard)), needsProfile.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: "32px"
     }
@@ -3120,7 +3194,12 @@ function OutreachQueue({
       fontStyle: "italic",
       marginBottom: "12px"
     }
-  }, "Everyone you've reached out to. Update the status yourself as things move, or use \"Check outreach status\" to open a live Claude session that checks LinkedIn for the ", awaitingOutcome.length, " still-pending rows and updates them for you — LinkedIn doesn't push status changes to us on its own."), pipeline.map(renderPipelineCard)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Everyone you've reached out to. Update the status yourself as things move, or use \"Check outreach status\" to open a live Claude session that checks LinkedIn for the ", awaitingOutcome.length, " still-pending rows and updates them for you — LinkedIn doesn't push status changes to us on its own."), (showAllSent ? pipeline : pipeline.filter(r => r.status !== "connect_sent")).map(renderPipelineCard), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowAllSent(!showAllSent),
+    style: Object.assign({}, QUIET_BUTTON, {
+      marginTop: "8px"
+    })
+  }, showAllSent ? "Hide invites still waiting and the full contact table" : "Show " + pipeline.filter(r => r.status === "connect_sent").length + " invites still waiting, and the full contact table")), rows.length > 0 && showAllSent && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: "8px"
     }
@@ -3234,7 +3313,7 @@ const OPPORTUNITY_TYPES = ["Process Plant", "NPI", "Village & Camp", "General"];
 const STATUS_ORDER = ["Needs Review", "Investigating", "Chasing", "Passed"];
 // Pipeline display order (Greg, 23 Oct): focus projects first, then what we are chasing, by priority.
 // Re-ranked (Greg, 10 Nov): focus projects, then live opportunities (Chasing/Investigating, or in live comms with a contact), then leads (untriaged), with channel partners at the bottom - lowest chance of winning work, as contractors tend to keep design in-house.
-const DISPLAY_ORDER = ["Focus projects", "Live opportunities", "Leads", "Channel partners", "Passed"];
+const DISPLAY_ORDER = ["Focus projects", "Live opportunities", "Leads", "Channel partners", "Parked", "Passed"];
 const LIVE_OUTREACH_STATUSES = ["message_sent", "connected", "replied", "meeting_booked"];
 const LIVE_STYLE = {
   color: "#6B8F6B",
@@ -3260,7 +3339,7 @@ const FOCUS_STYLE = {
 const WARMTH_RANK = { hot: 3, warm: 2, luke_warm: 1, cold: 0 };
 const BID_STATUS_STYLE = {
   "Needs Review": {
-    color: "#4B4E53",
+    color: "#8B9198",
     bar: "#4B4E53",
     label: "Needs Review — not yet triaged"
   },
@@ -4637,9 +4716,8 @@ function Row({
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Next action",
     value: item.nextAction ? item.nextAction + (item.nextActionOwner ? " (" + item.nextActionOwner + (item.nextActionDue ? ", due " + item.nextActionDue : "") + ")" : "") : null
-  }), /*#__PURE__*/React.createElement(Detail, {
-    label: "Latest intel (BD Manager)",
-    value: item.lastFinding
+  }), /*#__PURE__*/React.createElement(IntelTimeline, {
+    text: item.lastFinding
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Path to win",
     value: item.pathToWin
@@ -4680,7 +4758,9 @@ function Row({
       borderRadius: "3px",
       padding: "1px 6px"
     }
-  }, (OUTREACH_STATUS_META[item.outreachStatus] || {}).label || item.outreachStatus))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, (OUTREACH_STATUS_META[item.outreachStatus] || {}).label || item.outreachStatus)), /*#__PURE__*/React.createElement(OtherContacts, {
+    item: item
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: "#5E6268",
       fontSize: "11px",
@@ -4889,7 +4969,7 @@ function Dashboard() {
   const [tierFilter, setTierFilter] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [commenterName, setCommenterNameState] = useState("");
-  const [view, setView] = useState("pipeline");
+  const [view, setView] = useState("today");
   const [session, setSession] = useState(null);
   const canEdit = !!session;
   useEffect(() => {
@@ -4952,6 +5032,7 @@ function Dashboard() {
   }, []);
   const [bidStatusFilter, setBidStatusFilter] = useState("");
   const [showPassed, setShowPassed] = useState(false);
+  const [showParked, setShowParked] = useState(false);
   const [warmthFilter, setWarmthFilter] = useState("");
   const [sortMode, setSortMode] = useState("score");
   const [opportunityTypeFilter, setOpportunityTypeFilter] = useState("");
@@ -5133,8 +5214,10 @@ function Dashboard() {
         // skipped row plus a newer real one).
         const OUTREACH_RANK = ["meeting_booked", "replied", "connected", "message_sent", "connect_sent", "ready_to_send", "approved", "needs_profile", "pending_review", "declined", "skipped_by_user"];
         const outreachByItem = {};
+        const outreachAllByItem = {};
         if (!outreachResult.error) {
           for (const row of outreachResult.data || []) {
+            if (row.contact_name && row.status !== "skipped_by_user" && row.status !== "declined") (outreachAllByItem[row.item_id] = outreachAllByItem[row.item_id] || []).push(row);
             const existing = outreachByItem[row.item_id];
             if (!existing) {
               outreachByItem[row.item_id] = row;
@@ -5187,6 +5270,7 @@ function Dashboard() {
             outreachContactRole: outreach ? outreach.contact_role : null,
             outreachLinkedIn: outreach ? outreach.contact_linkedin_url : null,
             outreachStatus: outreach ? outreach.status : null,
+            outreachContacts: outreachAllByItem[row.item_id] || [],
             manualContactName: manualContactByItem[row.item_id] || null
           };
         });
@@ -5299,7 +5383,7 @@ function Dashboard() {
     });
     filtered.forEach(i => {
       const s = normalizeBidStatus(bidStatusMap[i.id]);
-      if (focusMap[i.id] && s !== "Passed" && s !== "Chasing") g["Focus projects"].push(i);else if (i.tier === "Channel" && s !== "Passed") g["Channel partners"].push(i);else if (s === "Passed") g["Passed"].push(i);else if (s === "Chasing" || s === "Investigating" || LIVE_OUTREACH_STATUSES.includes(i.outreachStatus)) g["Live opportunities"].push(i);else g["Leads"].push(i);
+      if (focusMap[i.id] && s !== "Passed" && s !== "Chasing") g["Focus projects"].push(i);else if (i.tier === "Channel" && s !== "Passed") g["Channel partners"].push(i);else if (s === "Passed") g["Passed"].push(i);else if (s === "Chasing" || s === "Investigating" || LIVE_OUTREACH_STATUSES.includes(i.outreachStatus)) g["Live opportunities"].push(i);else if (i.bdState === "parked") g["Parked"].push(i);else g["Leads"].push(i);
     });
     const comparator = sortMode === "date" ? (a, b) => new Date(b.createdAt) - new Date(a.createdAt) : sortMode === "chase" ? (a, b) => b.chaseScore - a.chaseScore : (a, b) => a.rank - b.rank;
     Object.values(g).forEach(arr => arr.sort(comparator));
@@ -5553,6 +5637,9 @@ function Dashboard() {
       flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView("today"),
+    style: navTabStyle(view === "today")
+  }, "Today"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setView("pipeline"),
     style: {
       background: "none",
@@ -5609,20 +5696,6 @@ function Dashboard() {
       marginBottom: "-13px"
     }
   }, "Outreach"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setView("report"),
-    style: {
-      background: "none",
-      border: "none",
-      cursor: "pointer",
-      padding: 0,
-      color: view === "report" ? "#EDE9E1" : "#71767D",
-      fontSize: "13px",
-      fontWeight: 500,
-      borderBottom: view === "report" ? "2px solid #C1592E" : "2px solid transparent",
-      paddingBottom: "12px",
-      marginBottom: "-13px"
-    }
-  }, "BD Report"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setView("results"),
     style: {
       background: "none",
@@ -5638,7 +5711,14 @@ function Dashboard() {
     }
   }, "Results")), /*#__PURE__*/React.createElement(SignInControl, {
     session: session
-  })), view === "results" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+  })), view === "today" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+    style: PAGE_H1_STYLE
+  }, "Today"), /*#__PURE__*/React.createElement(TodayPage, {
+    items: effectiveItems,
+    canEdit: canEdit,
+    onOpenItem: openItemFromActions,
+    onGo: setView
+  })) : view === "results" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
@@ -5646,7 +5726,15 @@ function Dashboard() {
       color: "#EDE9E1",
       margin: "0 0 28px 0"
     }
-  }, "Results"), /*#__PURE__*/React.createElement(ResultsPage, null)) : view === "report" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
+  }, "Results"), /*#__PURE__*/React.createElement(ResultsPage, null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "48px"
+    }
+  }, /*#__PURE__*/React.createElement(BdReportPage, {
+    items: effectiveItems,
+    onOpenItem: openItemFromActions,
+    canEdit: canEdit
+  }))) : view === "report" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: "'Fraunces', serif",
       fontWeight: 600,
@@ -5885,6 +5973,15 @@ function Dashboard() {
   }, DISPLAY_ORDER.map(statusKey => {
     const rows = grouped[statusKey];
     if (!rows.length) return null;
+    if (statusKey === "Parked" && !showParked && !search) return /*#__PURE__*/React.createElement("div", {
+      key: statusKey,
+      style: { marginBottom: "34px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setShowParked(true),
+      style: QUIET_BUTTON
+    }, "Show " + rows.length + " parked projects"), /*#__PURE__*/React.createElement("span", {
+      style: { color: "#5E6268", fontSize: "12px" }
+    }, "Researched and set aside for now. Each has a revisit date, and a search always includes them."));
     if (statusKey === "Passed" && !showPassed && bidStatusFilter !== "Passed") return /*#__PURE__*/React.createElement("div", {
       key: statusKey,
       style: { marginBottom: "34px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }
@@ -5894,7 +5991,7 @@ function Dashboard() {
     }, "Show " + rows.length + " closed / passed projects"), /*#__PURE__*/React.createElement("span", {
       style: { color: "#5E6268", fontSize: "12px" }
     }, "Hidden from the active list — kept with their close reason and checked weekly for revival news"));
-    const style = statusKey === "Focus projects" ? FOCUS_STYLE : statusKey === "Channel partners" ? CHANNEL_STYLE : statusKey === "Live opportunities" ? LIVE_STYLE : statusKey === "Leads" ? LEADS_STYLE : BID_STATUS_STYLE[statusKey];
+    const style = statusKey === "Focus projects" ? FOCUS_STYLE : statusKey === "Channel partners" ? CHANNEL_STYLE : statusKey === "Live opportunities" ? LIVE_STYLE : statusKey === "Leads" ? LEADS_STYLE : statusKey === "Parked" ? PARKED_STYLE : BID_STATUS_STYLE[statusKey];
     return /*#__PURE__*/React.createElement("div", {
       key: statusKey,
       style: {
@@ -5920,8 +6017,8 @@ function Dashboard() {
         color: "#5E6268",
         fontSize: "13px"
       }
-    }, rows.length), statusKey === "Passed" && showPassed && bidStatusFilter !== "Passed" ? /*#__PURE__*/React.createElement("button", {
-      onClick: () => setShowPassed(false),
+    }, rows.length), statusKey === "Passed" && showPassed && bidStatusFilter !== "Passed" || statusKey === "Parked" && showParked && !search ? /*#__PURE__*/React.createElement("button", {
+      onClick: () => statusKey === "Parked" ? setShowParked(false) : setShowPassed(false),
       style: { background: "transparent", border: "1px solid #23272D", borderRadius: "4px", color: "#9AA0A6", padding: "2px 10px", cursor: "pointer", fontSize: "12px" }
     }, "Hide") : null), /*#__PURE__*/React.createElement("div", {
       style: {
