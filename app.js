@@ -498,7 +498,7 @@ function MiniRow({
   }, item.company || "Company unknown", " · ", item.commodity, " · ", item.state)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "'IBM Plex Mono', monospace",
-      color: item.score >= 35 ? "#E9987A" : "#B7BBC1",
+      color: item.score >= 60 ? "#E9987A" : "#B7BBC1",
       fontSize: "13.5px",
       flexShrink: 0,
       marginLeft: "12px"
@@ -4581,7 +4581,7 @@ function Row({
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "'IBM Plex Mono', monospace",
-      color: item.score >= 35 ? "#E9987A" : "#B7BBC1",
+      color: item.score >= 60 ? "#E9987A" : "#B7BBC1",
       fontSize: "14px",
       textAlign: "right"
     }
@@ -4710,6 +4710,9 @@ function Row({
     canEdit: canEdit,
     onChange: onOpportunityTypesChange,
     allTypes: allOpportunityTypes
+  }), /*#__PURE__*/React.createElement(Detail, {
+    label: "Why it ranks here (score " + item.score + " of 100)",
+    value: item.rankWhy
   }), /*#__PURE__*/React.createElement(Detail, {
     label: "Trigger event",
     value: item.trigger
@@ -5205,6 +5208,12 @@ function Dashboard() {
           error
         } = oppResult;
         if (error) throw new Error(error.message);
+        // Priority ranking (Greg, 17 Nov 2026): way in first, then trigger, then NPI need - see view public.opportunity_rank.
+        const rankResult = await supabaseClient.from("opportunity_rank").select("item_id, total, pos, why");
+        const rankByItem = {};
+        if (!rankResult.error) {
+          for (const r of rankResult.data || []) rankByItem[r.item_id] = r;
+        }
         // Best outreach_queue row per opportunity — used as the feedback loop
         // for "who's the contact" / "have we reached out" (see brief, 2026-09-15
         // session: this is the current, human-reviewed record, more reliable
@@ -5242,8 +5251,9 @@ function Dashboard() {
             dbmv: row.engagement_stage,
             funding: row.funding_status,
             opportunityTypes: row.opportunity_types || [],
-            score: row.bd_score != null ? Number(row.bd_score) : 0,
-            rank: row.bd_rank != null ? Number(row.bd_rank) : null,
+            score: rankByItem[row.item_id] ? Number(rankByItem[row.item_id].total) : row.bd_score != null ? Number(row.bd_score) : 0,
+            rank: rankByItem[row.item_id] ? Number(rankByItem[row.item_id].pos) : row.bd_rank != null ? Number(row.bd_rank) : null,
+            rankWhy: rankByItem[row.item_id] ? rankByItem[row.item_id].why : null,
             npiPotential: row.npi_potential || null,
             ownerAccessibility: row.owner_accessibility || null,
             // Display the true data provenance (MINEDEX, EPA WA, Business News,
@@ -5445,10 +5455,10 @@ function Dashboard() {
       label: "Position",
       get: i => i.dbmv
     }, {
-      label: "BD Score",
+      label: "Priority score",
       get: i => i.score
     }, {
-      label: "BD Rank",
+      label: "Priority rank",
       get: i => i.rank
     }, {
       label: "Source",
@@ -5960,7 +5970,7 @@ function Dashboard() {
   }, "Sort:", /*#__PURE__*/React.createElement(Chip, {
     active: sortMode === "score",
     onClick: () => setSortMode("score")
-  }, "BD Score"), /*#__PURE__*/React.createElement(Chip, {
+  }, "Priority"), /*#__PURE__*/React.createElement(Chip, {
     active: sortMode === "date",
     onClick: () => setSortMode("date")
   }, "Newest added"), /*#__PURE__*/React.createElement(Chip, {
